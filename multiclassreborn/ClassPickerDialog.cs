@@ -16,6 +16,9 @@ namespace multiclassreborn
 {
     internal class ClassPickerDialog : GuiDialog
     {
+        private const double DetailScrollbarWidth = 14;
+        private const double DetailScrollbarPadding = 4;
+
         private readonly ICoreClientAPI clientApi;
         private readonly MulticlassRebornModSystem classSystem;
 
@@ -62,7 +65,7 @@ namespace multiclassreborn
             ElementBounds dialogBounds = ElementStdBounds.AutosizedMainDialog.WithAlignment(EnumDialogArea.CenterMiddle);
             ElementBounds backgroundBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 760, 560);
             ElementBounds listBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 560);
-            ElementBounds detailBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 10, 490, 500);
+            ElementBounds detailBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 35, 490, 475);
             ElementBounds actionBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 520, 490, 30);
 
             SingleComposer = clientApi.Gui
@@ -112,8 +115,9 @@ namespace multiclassreborn
 
         private string BuildClassButtonLabel(string classCode)
         {
-            if (classCode == selectedClassCode) return "> " + classCode;
-            return "  " + classCode;
+            string className = ClassTraitTextUtil.GetClassName(classCode);
+            if (classCode == selectedClassCode) return "> " + className;
+            return "  " + className;
         }
 
         private void AddClassDetails(ElementBounds detailBounds, ElementBounds actionBounds, string mainClass, List<string> extraClasses, RebornPlayerClassState state)
@@ -128,7 +132,7 @@ namespace multiclassreborn
             bool canLearn = !isMainClass && !isLearned && state.UsedSlots < state.AvailableSlots;
             bool canForget = !isMainClass && isLearned && (!state.RequiresRunes || state.RemovalCredits > 0);
 
-            SingleComposer.AddRichtext(BuildClassDetailText(classDef, isMainClass, isLearned, state), CairoFont.WhiteSmallText(), detailBounds, "classDetails");
+            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, state, detailBounds), detailBounds);
 
             if (canLearn)
             {
@@ -152,10 +156,46 @@ namespace multiclassreborn
             }
         }
 
-        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, RebornPlayerClassState state)
+        /// <summary>
+        /// Adds clipped, measured class details with a scrollbar when needed.
+        /// </summary>
+        private void AddScrollableClassDetails(string detailText, ElementBounds detailBounds)
         {
+            CairoFont font = CairoFont.WhiteSmallText();
+            double textWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
+            double contentHeight = ClassTraitTextUtil.MeasureExplicitTextHeight(detailText, font, 1);
+            ElementBounds clipBounds = ElementBounds.Fixed(detailBounds.fixedX, detailBounds.fixedY, textWidth, detailBounds.fixedHeight);
+            ElementBounds textBounds = ElementBounds.Fixed(0, 0, textWidth, contentHeight);
+
+            SingleComposer.BeginClip(clipBounds);
+            SingleComposer.AddRichtext(detailText, font, textBounds, "classDetails");
+            SingleComposer.EndClip();
+
+            if (contentHeight <= detailBounds.fixedHeight) return;
+
+            ElementBounds scrollbarBounds = ElementBounds.Fixed(detailBounds.fixedX + textWidth + DetailScrollbarPadding, detailBounds.fixedY, DetailScrollbarWidth, detailBounds.fixedHeight);
+            SingleComposer.AddVerticalScrollbar(OnClassDetailsScroll, scrollbarBounds, "classDetailsScrollbar");
+            SingleComposer.OnComposed += () => SingleComposer.GetScrollbar("classDetailsScrollbar")?.SetHeights((float)detailBounds.fixedHeight, (float)contentHeight);
+        }
+
+        /// <summary>
+        /// Scrolls the class detail pane.
+        /// </summary>
+        private void OnClassDetailsScroll(float dy)
+        {
+            ElementBounds bounds = SingleComposer?.GetRichtext("classDetails")?.Bounds;
+            if (bounds == null) return;
+
+            bounds.fixedY = -dy;
+            bounds.CalcWorldBounds();
+        }
+
+        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, RebornPlayerClassState state, ElementBounds detailBounds)
+        {
+            CairoFont font = CairoFont.WhiteSmallText();
+            double maxWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
             StringBuilder text = new StringBuilder();
-            text.AppendLine($"<strong><font size=\"18\">{classDef.Code}</font></strong>");
+            text.AppendLine($"<strong><font size=\"18\">{ClassTraitTextUtil.GetClassName(classDef.Code)}</font></strong>");
             text.AppendLine();
 
             if (isMainClass) text.AppendLine("<i>This is your main class.</i>");
@@ -173,13 +213,22 @@ namespace multiclassreborn
 
             foreach (string traitCode in classDef.Traits)
             {
-                text.AppendLine($"  <strong>{traitCode}</strong>");
+                if (!classSystem.Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait)) continue;
 
-                if (!classSystem.Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait) || trait.Attributes == null) continue;
+                text.AppendLine($"  {ClassTraitTextUtil.BuildTraitNameText(trait)}");
 
-                foreach (KeyValuePair<string, double> stat in trait.Attributes)
+                if (trait.Attributes != null)
                 {
-                    text.AppendLine($"    - {Lang.Get($"charattribute-{stat.Key}-{stat.Value}")}");
+                    foreach (KeyValuePair<string, double> stat in trait.Attributes)
+                    {
+                        ClassTraitTextUtil.AppendWrappedBullet(text, Lang.Get($"charattribute-{stat.Key}-{stat.Value}"), font, maxWidth);
+                    }
+                }
+
+                string description = Lang.GetIfExists("traitdesc-" + traitCode);
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth);
                 }
             }
 

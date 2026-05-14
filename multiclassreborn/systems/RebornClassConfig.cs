@@ -18,6 +18,9 @@ namespace multiclassreborn.systems
         [JsonProperty("SecondaryScale")]
         public float ExtraClassScale = 0.8f;
 
+        [JsonProperty("SuppressDuplicateExtraStats")]
+        public bool SuppressDuplicateExtraStats;
+
         public int MaxExtraClasses = 3;
 
         [JsonProperty("RequireTokens")]

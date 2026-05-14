@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using HarmonyLib;
 using multiclassreborn.items;
 using multiclassreborn.systems;
 using Vintagestory.API.Client;
@@ -26,8 +27,11 @@ namespace multiclassreborn
         private ICoreServerAPI sapi;
         private ICoreClientAPI capi;
         private ClassPickerDialog classDialog;
+        private Harmony clientHarmony;
 
         internal RebornClassConfig Config { get; private set; }
+        internal ICoreClientAPI ClientApi => capi;
+        internal static MulticlassRebornModSystem ClientInstance { get; private set; }
         internal ClassLedger Ledger { get; } = new ClassLedger();
 
         public override double ExecuteOrder()
@@ -56,19 +60,25 @@ namespace multiclassreborn
             sapi.Event.PlayerJoin += PreparePlayerState;
             RegisterClassCommands();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, Scale={3:P0}, MaxSlots={4}, RequireRunes={5}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, Scale={3:P0}, MaxSlots={4}, RequireRunes={5}, SuppressDuplicateExtraStats={6}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
                 Config.ExtraClassScale,
                 Config.MaxExtraClasses,
-                Config.RequireRunes);
+                Config.RequireRunes,
+                Config.SuppressDuplicateExtraStats);
         }
 
         public override void StartClientSide(ICoreClientAPI api)
         {
             capi = api;
+            ClientInstance = this;
             Ledger.Reload(api);
+            Config = new RebornClassConfig();
+
+            clientHarmony = new Harmony("multiclassreborn.client");
+            clientHarmony.PatchAll();
 
             classDialog = new ClassPickerDialog(capi, this);
             capi.Input.RegisterHotKey("multiclassgui", "Open Class Selection", GlKeys.K, HotkeyType.GUIOrOtherControls, false, true, false);
@@ -77,6 +87,17 @@ namespace multiclassreborn
                 classDialog.Toggle();
                 return true;
             });
+        }
+
+        /// <summary>
+        /// Removes client patches when the mod system shuts down.
+        /// </summary>
+        public override void Dispose()
+        {
+            clientHarmony?.UnpatchAll("multiclassreborn.client");
+            if (ClientInstance == this) ClientInstance = null;
+
+            base.Dispose();
         }
 
         /// <summary>
@@ -409,6 +430,25 @@ namespace multiclassreborn
 
         private void ApplyScaledStats(IServerPlayer player, HashSet<string> traitCodes)
         {
+            List<TraitStatCandidate> candidates = GatherTraitStatCandidates(traitCodes);
+            IEnumerable<TraitStatCandidate> appliedCandidates = Config.SuppressDuplicateExtraStats
+                ? ChooseNonDuplicateTraitStats(candidates)
+                : candidates;
+
+            foreach (TraitStatCandidate candidate in appliedCandidates)
+            {
+                float scaledValue = (float)candidate.RawValue * Config.ExtraClassScale;
+                player.Entity.Stats.Set(candidate.StatCode, BuildStatSourceCode(candidate.TraitCode), scaledValue, false);
+            }
+        }
+
+        /// <summary>
+        /// Flattens extra-class traits into individual stat candidates.
+        /// </summary>
+        private List<TraitStatCandidate> GatherTraitStatCandidates(HashSet<string> traitCodes)
+        {
+            List<TraitStatCandidate> candidates = new List<TraitStatCandidate>();
+
             foreach (string traitCode in traitCodes)
             {
                 if (!Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait)) continue;
@@ -416,9 +456,32 @@ namespace multiclassreborn
 
                 foreach (KeyValuePair<string, double> stat in trait.Attributes)
                 {
-                    float scaledValue = (float)stat.Value * Config.ExtraClassScale;
-                    player.Entity.Stats.Set(stat.Key, BuildStatSourceCode(traitCode), scaledValue, false);
+                    candidates.Add(new TraitStatCandidate(traitCode, stat.Key, stat.Value, trait.Type));
                 }
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Drops duplicate positive stat bonuses and keeps the harshest negative.
+        /// </summary>
+        private IEnumerable<TraitStatCandidate> ChooseNonDuplicateTraitStats(List<TraitStatCandidate> candidates)
+        {
+            foreach (IGrouping<string, TraitStatCandidate> group in candidates.GroupBy(candidate => candidate.StatCode))
+            {
+                if (group.Count() == 1)
+                {
+                    yield return group.First();
+                    continue;
+                }
+
+                TraitStatCandidate worstNegative = group
+                    .Where(candidate => candidate.TraitType == EnumTraitType.Negative)
+                    .OrderByDescending(candidate => Math.Abs(candidate.RawValue))
+                    .FirstOrDefault();
+
+                if (worstNegative != null) yield return worstNegative;
             }
         }
 
@@ -480,6 +543,25 @@ namespace multiclassreborn
         private string BuildStatSourceCode(string traitCode)
         {
             return $"multiclassreborn_{traitCode}";
+        }
+
+        /// <summary>
+        /// Carries one trait stat value before duplicate handling is applied.
+        /// </summary>
+        private sealed class TraitStatCandidate
+        {
+            public readonly string TraitCode;
+            public readonly string StatCode;
+            public readonly double RawValue;
+            public readonly EnumTraitType TraitType;
+
+            public TraitStatCandidate(string traitCode, string statCode, double rawValue, EnumTraitType traitType)
+            {
+                TraitCode = traitCode;
+                StatCode = statCode;
+                RawValue = rawValue;
+                TraitType = traitType;
+            }
         }
 
         private void Tell(IServerPlayer player, string message, EnumChatType chatType)
