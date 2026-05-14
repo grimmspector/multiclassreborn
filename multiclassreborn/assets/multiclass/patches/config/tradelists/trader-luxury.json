@@ -1,0 +1,42 @@
+[
+  {
+    "side": "server",
+    "file": "game:config/tradelists/trader-luxuries.json",
+    "op": "add",
+    "path": "/selling/list/-",
+    "value": {
+      "code": "multiclass:classrune",
+      "type": "item",
+      "weight": 0.1,
+      "stacksize": 1,
+      "stock": {
+        "avg": 1,
+        "var": 1
+      },
+      "price": {
+        "avg": 75,
+        "var": 50
+      }
+    }
+  },
+  {
+    "side": "server",
+    "file": "game:config/tradelists/trader-luxuries.json",
+    "op": "add",
+    "path": "/selling/list/-",
+    "value": {
+      "code": "multiclass:unlearnrune",
+      "type": "item",
+      "weight": 0.1,
+      "stacksize": 1,
+      "stock": {
+        "avg": 1,
+        "var": 1
+      },
+      "price": {
+        "avg": 75,
+        "var": 50
+      }
+    }
+  }
+]

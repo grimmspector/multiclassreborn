@@ -1,0 +1,27 @@
+{
+  "code": "classglyphstone",
+  "class": "ClassGlyphstone",
+  "maxstacksize": 6,
+  "materialDensity": 600,
+  "creativeinventory": {
+    "general": [ "*" ],
+    "items": [ "*" ]
+  },
+  "shape": {
+    "base": "survival:item/gear-rusty"
+  },
+  "renderAlphaTest": 0.01,
+  "tradeProperties": {
+    "selling": {
+      "price": {
+        "type": "item",
+        "code": "gear-temporal",
+        "quantity": 4
+      },
+      "stock": {
+        "tier1": 1,
+        "tier2": 2
+      }
+    }
+  }
+}
