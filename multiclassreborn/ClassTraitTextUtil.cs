@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -106,6 +107,138 @@ namespace multiclassreborn
             if (text.Equals(localizationKey, StringComparison.OrdinalIgnoreCase)) return false;
 
             return !string.IsNullOrWhiteSpace(StripVtml(text));
+        }
+
+        /// <summary>
+        /// Builds the extra-class stat lines that survive duplicate filtering.
+        /// </summary>
+        internal static HashSet<string> BuildAppliedExtraStatKeys(MulticlassRebornModSystem classSystem, IEnumerable<string> extraClassCodes, bool onlyBestPositive, bool onlyWorstNegative)
+        {
+            List<TraitStatLine> candidates = GatherExtraStatLines(classSystem, extraClassCodes);
+            HashSet<string> appliedKeys = new HashSet<string>();
+
+            foreach (var group in candidates.GroupBy(candidate => new { candidate.StatCode, candidate.TraitType }))
+            {
+                if (ShouldKeepOnlyStrongest(group.Key.TraitType, onlyBestPositive, onlyWorstNegative))
+                {
+                    appliedKeys.Add(group.OrderByDescending(candidate => Math.Abs(candidate.RawValue)).First().Key);
+                    continue;
+                }
+
+                foreach (TraitStatLine candidate in group)
+                {
+                    appliedKeys.Add(candidate.Key);
+                }
+            }
+
+            return appliedKeys;
+        }
+
+        /// <summary>
+        /// Tests whether an extra-class stat line should be shown as applied.
+        /// </summary>
+        internal static bool IsAppliedExtraStat(HashSet<string> appliedStatKeys, string traitCode, string statCode)
+        {
+            return appliedStatKeys == null || appliedStatKeys.Contains(BuildStatKey(traitCode, statCode));
+        }
+
+        /// <summary>
+        /// Formats base stat text and optional extra-class scaled value.
+        /// </summary>
+        internal static string BuildStatText(KeyValuePair<string, double> stat, float scale, bool showScaledValue, bool isApplied = true)
+        {
+            string baseText = Lang.Get($"charattribute-{stat.Key}-{stat.Value}");
+            if (!showScaledValue) return baseText;
+            if (!isApplied) return $"{baseText} (0%)";
+
+            string scaledText = BuildScaledStatText(baseText, scale);
+            if (scaledText == baseText) return baseText;
+
+            string scaledValue = BuildCompactScaledValue(scaledText);
+            return $"{baseText} ({scaledValue})";
+        }
+
+        /// <summary>
+        /// Flattens selected extra classes into UI stat candidates.
+        /// </summary>
+        private static List<TraitStatLine> GatherExtraStatLines(MulticlassRebornModSystem classSystem, IEnumerable<string> extraClassCodes)
+        {
+            List<TraitStatLine> candidates = new List<TraitStatLine>();
+            HashSet<string> traitCodes = new HashSet<string>();
+
+            foreach (string classCode in extraClassCodes ?? Enumerable.Empty<string>())
+            {
+                if (!classSystem.Ledger.ClassByCode.TryGetValue(classCode, out CharacterClass classDef)) continue;
+                if (classDef.Traits == null) continue;
+
+                foreach (string traitCode in classDef.Traits)
+                {
+                    if (!traitCodes.Add(traitCode)) continue;
+                    if (!classSystem.Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait)) continue;
+                    if (trait.Attributes == null) continue;
+
+                    foreach (KeyValuePair<string, double> stat in trait.Attributes)
+                    {
+                        candidates.Add(new TraitStatLine(traitCode, stat.Key, stat.Value, trait.Type));
+                    }
+                }
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Tests whether config keeps one stat line for this trait polarity.
+        /// </summary>
+        private static bool ShouldKeepOnlyStrongest(EnumTraitType traitType, bool onlyBestPositive, bool onlyWorstNegative)
+        {
+            if (traitType == EnumTraitType.Positive) return onlyBestPositive;
+            if (traitType == EnumTraitType.Negative) return onlyWorstNegative;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Builds a stable key for one trait stat line.
+        /// </summary>
+        private static string BuildStatKey(string traitCode, string statCode)
+        {
+            return traitCode + "\n" + statCode;
+        }
+
+        /// <summary>
+        /// Scales the first numeric value inside a translated stat phrase.
+        /// </summary>
+        private static string BuildScaledStatText(string baseText, float scale)
+        {
+            Match match = Regex.Match(baseText, @"([+-]?\d+(?:\.\d+)?)(%)?");
+            if (!match.Success) return baseText;
+
+            double value = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            string scaledNumber = FormatScaledNumber(value * scale);
+            string replacement = scaledNumber + match.Groups[2].Value;
+
+            return baseText.Substring(0, match.Index) + replacement + baseText.Substring(match.Index + match.Length);
+        }
+
+        /// <summary>
+        /// Keeps scaled display numbers compact and signed when useful.
+        /// </summary>
+        private static string FormatScaledNumber(double value)
+        {
+            string sign = value > 0 ? "+" : "";
+            return sign + value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Removes repeated stat labels from the scaled value when possible.
+        /// </summary>
+        private static string BuildCompactScaledValue(string scaledText)
+        {
+            Match numericValue = Regex.Match(scaledText, @"[+-]?\d+(?:\.\d+)?%?");
+            if (numericValue.Success) return numericValue.Value;
+
+            return scaledText;
         }
 
         /// <summary>
@@ -294,6 +427,22 @@ namespace multiclassreborn
             {
                 Name = name;
                 OpeningTag = openingTag;
+            }
+        }
+
+        private sealed class TraitStatLine
+        {
+            internal readonly string Key;
+            internal readonly string StatCode;
+            internal readonly double RawValue;
+            internal readonly EnumTraitType TraitType;
+
+            internal TraitStatLine(string traitCode, string statCode, double rawValue, EnumTraitType traitType)
+            {
+                Key = BuildStatKey(traitCode, statCode);
+                StatCode = statCode;
+                RawValue = rawValue;
+                TraitType = traitType;
             }
         }
     }

@@ -17,6 +17,9 @@ namespace multiclassreborn.systems
         private const string RequireGlyphsKey = "requireTokens";
         private const string AllowBaseForgetKey = "allowBaseForget";
         private const string AllowCommonerBaseChoiceKey = "allowCommonerBaseChoice";
+        private const string ExtraClassScaleKey = "extraClassScale";
+        private const string OnlyBestPositiveKey = "onlyBestPositive";
+        private const string OnlyWorstNegativeKey = "onlyWorstNegative";
         private const string SlotsInitializedKey = "slotsInitialized";
 
         private readonly EntityPlayer entity;
@@ -99,6 +102,36 @@ namespace multiclassreborn.systems
             {
                 Tree.SetBool(AllowCommonerBaseChoiceKey, value);
                 MarkTreePath(AllowCommonerBaseChoiceKey);
+            }
+        }
+
+        public float ExtraClassScale
+        {
+            get => Tree.GetFloat(ExtraClassScaleKey, 0.8f);
+            set
+            {
+                Tree.SetFloat(ExtraClassScaleKey, value);
+                MarkTreePath(ExtraClassScaleKey);
+            }
+        }
+
+        public bool OnlyApplyBestPositiveTraitBonus
+        {
+            get => Tree.GetBool(OnlyBestPositiveKey, false);
+            set
+            {
+                Tree.SetBool(OnlyBestPositiveKey, value);
+                MarkTreePath(OnlyBestPositiveKey);
+            }
+        }
+
+        public bool OnlyApplyWorstNegativeTraitPenalty
+        {
+            get => Tree.GetBool(OnlyWorstNegativeKey, false);
+            set
+            {
+                Tree.SetBool(OnlyWorstNegativeKey, value);
+                MarkTreePath(OnlyWorstNegativeKey);
             }
         }
 

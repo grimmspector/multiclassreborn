@@ -8,6 +8,7 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;
 using Vintagestory.API.Datastructures;
+using Vintagestory.API.MathTools;
 using Vintagestory.GameContent;
 
 #nullable disable
@@ -18,6 +19,7 @@ namespace multiclassreborn
     {
         private const double DetailScrollbarWidth = 14;
         private const double DetailScrollbarPadding = 4;
+        private const string RetrainingGlyphItemCode = "multiclassreborn:retraining-glyphstone";
 
         private readonly ICoreClientAPI clientApi;
         private readonly MulticlassRebornModSystem classSystem;
@@ -51,6 +53,15 @@ namespace multiclassreborn
             return IsOpened() || base.TryOpen();
         }
 
+        public bool OpenForLearning()
+        {
+            openedForRetraining = false;
+            pendingForgetClassCode = null;
+            ComposeDialog();
+            clientApi.Event.RegisterCallback(_ => ComposeDialog(), 500);
+            return IsOpened() || base.TryOpen();
+        }
+
         /// <summary>
         /// Rebuilds the dialog from watched player state each time it opens.
         /// </summary>
@@ -77,16 +88,18 @@ namespace multiclassreborn
             ElementBounds dialogBounds = ElementStdBounds.AutosizedMainDialog.WithAlignment(EnumDialogArea.CenterMiddle);
             ElementBounds backgroundBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 760, 560);
             ElementBounds listBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 560);
-            ElementBounds detailBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 35, 490, 475);
+            ElementBounds detailPanelBounds = ElementBounds.Fixed(230, GuiStyle.TitleBarHeight, 530, 560);
+            ElementBounds detailBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 5, 490, 505);
             ElementBounds actionBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 520, 490, 30);
 
             SingleComposer = clientApi.Gui
                 .CreateCompo("multiclass-reborn-picker", dialogBounds)
-                .AddShadedDialogBG(backgroundBounds)
+                .AddShadedDialogBG(backgroundBounds, false)
                 .AddDialogTitleBar(BuildTitle(state), () => TryClose())
                 .BeginChildElements();
 
-            AddClassButtons(classList, listBounds);
+            AddClassButtons(classList, listBounds, mainClass, extraClasses);
+            SingleComposer.AddInset(detailPanelBounds, 2);
             AddClassDetails(detailBounds, actionBounds, mainClass, extraClasses, state);
 
             SingleComposer.EndChildElements();
@@ -100,7 +113,7 @@ namespace multiclassreborn
                 : Lang.Get("multiclassreborn:dialog-title-choose", state.UsedSlots, state.AvailableSlots);
         }
 
-        private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds)
+        private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds, string mainClass, List<string> extraClasses)
         {
             int rowsPerPage = 16;
             int pageCount = Math.Max(1, (int)Math.Ceiling(classList.Count / (double)rowsPerPage));
@@ -113,18 +126,28 @@ namespace multiclassreborn
             double y = GuiStyle.TitleBarHeight + 35;
             foreach (CharacterClass classDef in classList.Skip(pageIndex * rowsPerPage).Take(rowsPerPage))
             {
-                string label = BuildClassButtonLabel(classDef.Code);
+                string label = BuildClassButtonLabel(classDef.Code, mainClass, extraClasses);
+                CairoFont buttonFont = BuildClassButtonFont(classDef.Code, mainClass, extraClasses);
                 string buttonKey = "class-" + classDef.Code;
-                SingleComposer.AddSmallButton(label, () => SelectClass(classDef.Code), ElementBounds.Fixed(0, y, 230, 30), EnumButtonStyle.Small, buttonKey);
+                SingleComposer.AddButton(label, () => SelectClass(classDef.Code), ElementBounds.Fixed(0, y, 230, 30), buttonFont, EnumButtonStyle.Small, buttonKey);
                 y += 30;
             }
         }
 
-        private string BuildClassButtonLabel(string classCode)
+        private string BuildClassButtonLabel(string classCode, string mainClass, List<string> extraClasses)
         {
             string className = ClassTraitTextUtil.GetClassName(classCode);
             if (classCode == selectedClassCode) return "> " + className;
             return "  " + className;
+        }
+
+        private CairoFont BuildClassButtonFont(string classCode, string mainClass, List<string> extraClasses)
+        {
+            CairoFont font = CairoFont.WhiteSmallText();
+            if (classCode.Equals(mainClass, StringComparison.OrdinalIgnoreCase)) return font.WithColor(ColorUtil.Hex2Doubles("#79a9ff"));
+            if (extraClasses.Contains(classCode)) return font.WithColor(ColorUtil.Hex2Doubles("#ffd36a"));
+
+            return font;
         }
 
         private void AddClassDetails(ElementBounds detailBounds, ElementBounds actionBounds, string mainClass, List<string> extraClasses, RebornPlayerClassState state)
@@ -142,7 +165,7 @@ namespace multiclassreborn
             bool canForgetMain = isMainClass && state.AllowsBaseClassForgetting && !isCommoner;
             bool canChooseBase = isCommoner && state.AllowsCommonerBaseClassChoice && !isMainClass && !classDef.Code.Equals("commoner", StringComparison.OrdinalIgnoreCase);
 
-            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, state, detailBounds), detailBounds);
+            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, extraClasses, state, detailBounds), detailBounds);
 
             if (pendingForgetClassCode == classDef.Code)
             {
@@ -188,31 +211,11 @@ namespace multiclassreborn
 
         private void AddForgetConfirmation(ElementBounds actionBounds, CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
         {
-            ElementBounds textBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY - 56, actionBounds.fixedWidth, 50);
             ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, 235, 30);
             ElementBounds forgetBounds = ElementBounds.Fixed(actionBounds.fixedX + 255, actionBounds.fixedY, 235, 30);
 
-            SingleComposer.AddRichtext(BuildForgetConfirmationText(classDef, isMainClass, state), CairoFont.WhiteSmallText(), textBounds, "forgetConfirmationText");
             SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cancel"), CancelForget, cancelBounds, EnumButtonStyle.Small, "cancelForget");
             SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => SendClassCommand("confirmforget", classDef.Code), forgetBounds, EnumButtonStyle.Normal, "confirmForget");
-        }
-
-        private string BuildForgetConfirmationText(CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
-        {
-            string className = ClassTraitTextUtil.GetClassName(classDef.Code);
-
-            if (isMainClass)
-            {
-                string costText = state.RequiresGlyphs ? Lang.Get("multiclassreborn:dialog-forget-cost-retraining") + " " : "";
-                string recoveryText = state.AllowsCommonerBaseClassChoice
-                    ? Lang.Get("multiclassreborn:dialog-forget-base-recovery-choice")
-                    : Lang.Get("multiclassreborn:dialog-forget-base-recovery-earn");
-                return Lang.Get("multiclassreborn:dialog-confirm-forget-base", className, costText, recoveryText);
-            }
-
-            return state.RequiresGlyphs
-                ? Lang.Get("multiclassreborn:dialog-confirm-forget-extra-cost", className)
-                : Lang.Get("multiclassreborn:dialog-confirm-forget-extra", className);
         }
 
         /// <summary>
@@ -249,10 +252,12 @@ namespace multiclassreborn
             bounds.CalcWorldBounds();
         }
 
-        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, RebornPlayerClassState state, ElementBounds detailBounds)
+        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
         {
             CairoFont font = CairoFont.WhiteSmallText();
             double maxWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
+            bool showScaledValues = !isMainClass;
+            HashSet<string> appliedStatKeys = BuildPreviewAppliedStatKeys(classDef, isMainClass, isLearned, extraClasses, state);
             StringBuilder text = new StringBuilder();
             text.AppendLine($"<strong><font size=\"18\">{ClassTraitTextUtil.GetClassName(classDef.Code)}</font></strong>");
             text.AppendLine();
@@ -296,7 +301,8 @@ namespace multiclassreborn
                 {
                     foreach (KeyValuePair<string, double> stat in trait.Attributes)
                     {
-                        ClassTraitTextUtil.AppendWrappedBullet(text, Lang.Get($"charattribute-{stat.Key}-{stat.Value}"), font, maxWidth);
+                        bool isApplied = ClassTraitTextUtil.IsAppliedExtraStat(appliedStatKeys, traitCode, stat.Key);
+                        ClassTraitTextUtil.AppendWrappedBullet(text, ClassTraitTextUtil.BuildStatText(stat, state.ExtraClassScale, showScaledValues, isApplied), font, maxWidth);
                     }
                 }
 
@@ -309,6 +315,26 @@ namespace multiclassreborn
             }
 
             return text.ToString();
+        }
+
+        /// <summary>
+        /// Builds applied stat keys for learned or previewed extra classes.
+        /// </summary>
+        private HashSet<string> BuildPreviewAppliedStatKeys(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state)
+        {
+            if (isMainClass) return null;
+
+            List<string> previewClasses = new List<string>(extraClasses);
+            if (!isLearned && !previewClasses.Contains(classDef.Code))
+            {
+                previewClasses.Add(classDef.Code);
+            }
+
+            return ClassTraitTextUtil.BuildAppliedExtraStatKeys(
+                classSystem,
+                previewClasses,
+                state.OnlyApplyBestPositiveTraitBonus,
+                state.OnlyApplyWorstNegativeTraitPenalty);
         }
 
         private bool SelectClass(string classCode)
@@ -351,8 +377,49 @@ namespace multiclassreborn
         {
             clientApi.SendChatMessage($"/multiclass {action} {classCode}");
             pendingForgetClassCode = null;
-            clientApi.Event.RegisterCallback(_ => ComposeDialog(), 500);
+            clientApi.Event.RegisterCallback(_ => RefreshAfterClassCommand(), 500);
             return true;
+        }
+
+        private void RefreshAfterClassCommand()
+        {
+            RebornPlayerClassState state = new RebornPlayerClassState(clientApi.World.Player.Entity);
+            if (ShouldReturnToLearning(state)) openedForRetraining = false;
+
+            ComposeDialog();
+            CharacterTraitsTabPatch.RefreshOpenTraitsTab();
+        }
+
+        private bool ShouldReturnToLearning(RebornPlayerClassState state)
+        {
+            if (!openedForRetraining) return false;
+            if (state.UsedSlots >= state.AvailableSlots) return false;
+            if (state.ExtraClasses.Count == 0) return true;
+
+            return state.RequiresGlyphs && !ClientHasRetrainingGlyphstone();
+        }
+
+        private bool ClientHasRetrainingGlyphstone()
+        {
+            foreach (IInventory inventory in clientApi.World.Player.InventoryManager.InventoriesOrdered)
+            {
+                string inventoryId = inventory?.InventoryID ?? "";
+                string className = inventory?.ClassName ?? "";
+                if (inventoryId.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) < 0
+                    && className.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                for (int slotId = 0; slotId < inventory.Count; slotId++)
+                {
+                    ItemSlot slot = inventory[slotId];
+                    if (slot == null || slot.Empty) continue;
+                    if (slot.Itemstack.Collectible.Code.Equals(new AssetLocation(RetrainingGlyphItemCode))) return true;
+                }
+            }
+
+            return false;
         }
     }
 }

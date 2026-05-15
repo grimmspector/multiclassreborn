@@ -1,0 +1,84 @@
+{
+  "code": "retraining-glyphstone",
+  "class": "RetrainingGlyphstone",
+  "behaviors": [
+    {
+      "name": "GroundStorable",
+      "properties": {
+        "layout": "Quadrants",
+        "placeRemoveSound": "sounds/player/build",
+        "collisionBox": { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0.125, "z2": 1 },
+        "selectionBox": { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0.1875, "z2": 1 }
+      }
+    }
+  ],
+  "maxstacksize": 4,
+  "materialDensity": 1600,
+  "attributes": {
+    "groundStorageTransform": {
+      "translation": { "x": 0, "y": -0.05, "z": 0 },
+      "rotation": { "x": 90, "y": 0, "z": 0 },
+      "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
+      "scale": 0.34
+    },
+    "handbook": {
+      "extraSections": [
+        {
+          "title": "multiclassreborn:handbook-retraining-glyphstone-title",
+          "text": "multiclassreborn:handbook-retraining-glyphstone-text"
+        }
+      ]
+    }
+  },
+  "creativeinventory": {
+    "general": [ "*" ],
+    "items": [ "*" ],
+    "multiclassreborn": [ "*" ]
+  },
+  "shape": {
+    "base": "item/glyphstone"
+  },
+  "textures": {
+    "stone": { "base": "item/glyphstone/forget-stone" },
+    "face": { "base": "item/glyphstone/forget-face" },
+    "glyph": { "base": "item/glyphstone/forget-glyph" }
+  },
+  "renderAlphaTest": 0.01,
+  "guiTransform": {
+    "translation": { "x": 0, "y": 0.1, "z": 0 },
+    "rotation": { "x": 145, "y": -12, "z": 0 },
+    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
+    "scale": 1.1
+  },
+  "groundTransform": {
+    "translation": { "x": 0, "y": -0.02, "z": 0 },
+    "rotation": { "x": 90, "y": 0, "z": 0 },
+    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
+    "scale": 1.05
+  },
+  "tpHandTransform": {
+    "translation": { "x": -0.48, "y": -0.34, "z": -0.38 },
+    "rotation": { "x": 0, "y": -89, "z": -83 },
+    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
+    "scale": 0.24
+  },
+  "fpHandTransform": {
+    "translation": { "x": 0.34, "y": -0.2, "z": 0.18 },
+    "rotation": { "x": -18, "y": -78, "z": -58 },
+    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
+    "scale": 0.24
+  },
+  "tradeProperties": {
+    "selling": {
+      "price": {
+        "type": "item",
+        "code": "gear-temporal",
+        "quantity": 8
+      },
+      "stock": {
+        "tier1": 1,
+        "tier2": 2
+      }
+    }
+  }
+}

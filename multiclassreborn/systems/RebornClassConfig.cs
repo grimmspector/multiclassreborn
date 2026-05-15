@@ -47,6 +47,9 @@ namespace multiclassreborn.systems
         [JsonProperty("RequireTokens")]
         public bool RequireGlyphs;
 
+        // Aptitude Glyphstones granted on first join when RequireTokens is true.
+        public int StartingAptitudeTokens;
+
         private const string ConfigFileName = "multiclass.json";
 
         /// <summary>
@@ -89,6 +92,7 @@ namespace multiclassreborn.systems
         private void ClampUnsafeValues()
         {
             if (MaxExtraClasses < 0) MaxExtraClasses = 0;
+            if (StartingAptitudeTokens < 0) StartingAptitudeTokens = 0;
             if (ExtraClassScale < 0f) ExtraClassScale = 0f;
         }
 
@@ -144,7 +148,10 @@ namespace multiclassreborn.systems
   ""MaxExtraClasses"": {config.MaxExtraClasses},
 
   // Requires glyphstones for adding slots and forgetting classes.
-  ""RequireTokens"": {JsonBool(config.RequireGlyphs)}
+  ""RequireTokens"": {JsonBool(config.RequireGlyphs)},
+
+  // Aptitude Glyphstones granted on first join when RequireTokens is true.
+  ""StartingAptitudeTokens"": {config.StartingAptitudeTokens}
 }}
 ";
         }

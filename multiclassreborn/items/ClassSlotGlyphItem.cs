@@ -19,13 +19,20 @@ namespace multiclassreborn.items
 
             handHandling = EnumHandHandling.PreventDefault;
 
+            MulticlassRebornModSystem classSystem = api.ModLoader.GetModSystem<MulticlassRebornModSystem>();
+
+            if (byEntity?.World?.Side == EnumAppSide.Client)
+            {
+                classSystem.OpenClassDialogForLearning();
+                return;
+            }
+
             if (byEntity?.World?.Side != EnumAppSide.Server) return;
             if (byEntity is not EntityPlayer entityPlayer) return;
 
             IServerPlayer player = byEntity.World.PlayerByUid(entityPlayer.PlayerUID) as IServerPlayer;
             if (player == null) return;
 
-            MulticlassRebornModSystem classSystem = api.ModLoader.GetModSystem<MulticlassRebornModSystem>();
             if (!classSystem.TryGrantClassSlot(player)) return;
 
             // Consume only after the class system accepts the slot grant.

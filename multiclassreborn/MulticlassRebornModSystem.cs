@@ -10,6 +10,7 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;
 using Vintagestory.API.Datastructures;
+using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 using Vintagestory.GameContent;
 
@@ -64,7 +65,7 @@ namespace multiclassreborn
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, RequireGlyphs={6}, BestPositiveOnly={7}, WorstNegativeOnly={8}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, RequireGlyphs={6}, StartingAptitudeTokens={7}, BestPositiveOnly={8}, WorstNegativeOnly={9}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
@@ -72,6 +73,7 @@ namespace multiclassreborn
                 Config.ExtraClassScale,
                 Config.MaxExtraClasses,
                 Config.RequireGlyphs,
+                Config.StartingAptitudeTokens,
                 Config.OnlyApplyBestPositiveTraitBonus,
                 Config.OnlyApplyWorstNegativeTraitPenalty);
         }
@@ -118,7 +120,7 @@ namespace multiclassreborn
         }
 
         /// <summary>
-        /// Places our guide after vanilla tutorial and game mechanic pages.
+        /// Places our guide after vanilla game mechanic pages and before tutorials.
         /// </summary>
         private static void MoveGuideAfterVanillaGuides(List<GuiHandbookPage> pages)
         {
@@ -128,17 +130,16 @@ namespace multiclassreborn
             GuiHandbookPage guidePage = pages[guideIndex];
             pages.RemoveAt(guideIndex);
 
-            int insertIndex = pages.FindLastIndex(IsVanillaGuidePage) + 1;
+            int insertIndex = pages.FindLastIndex(IsVanillaGameMechanicPage) + 1;
             pages.Insert(insertIndex, guidePage);
         }
 
         /// <summary>
-        /// Detects vanilla-style guide pages by their handbook page code.
+        /// Detects vanilla game mechanic pages by their handbook page code.
         /// </summary>
-        private static bool IsVanillaGuidePage(GuiHandbookPage page)
+        private static bool IsVanillaGameMechanicPage(GuiHandbookPage page)
         {
-            return page.PageCode.StartsWith("gamemechanicinfo-", StringComparison.OrdinalIgnoreCase)
-                || page.PageCode.StartsWith("tutorial-", StringComparison.OrdinalIgnoreCase);
+            return page.PageCode.StartsWith("gamemechanicinfo-", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -303,6 +304,11 @@ namespace multiclassreborn
             classDialog?.OpenForRetraining();
         }
 
+        internal void OpenClassDialogForLearning()
+        {
+            classDialog?.OpenForLearning();
+        }
+
         private void PreparePlayerState(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
@@ -312,6 +318,9 @@ namespace multiclassreborn
             state.RequiresGlyphs = Config.RequireGlyphs;
             state.AllowsBaseClassForgetting = Config.AllowForgettingBaseClass;
             state.AllowsCommonerBaseClassChoice = Config.AllowCommonersChooseBaseClass;
+            state.ExtraClassScale = Config.ExtraClassScale;
+            state.OnlyApplyBestPositiveTraitBonus = Config.OnlyApplyBestPositiveTraitBonus;
+            state.OnlyApplyWorstNegativeTraitPenalty = Config.OnlyApplyWorstNegativeTraitPenalty;
 
             if (!Config.RequireGlyphs)
             {
@@ -322,12 +331,35 @@ namespace multiclassreborn
             }
             else if (!state.SlotsInitialized)
             {
+                GrantStartingAptitudeTokens(player);
                 state.SlotsInitialized = true;
             }
 
             RecountUsedSlots(state);
             MigrateLegacyGlyphItems(player);
             ReapplyClassEffects(player);
+        }
+
+        /// <summary>
+        /// Grants first-join Aptitude Glyphstones only on token-gated servers.
+        /// </summary>
+        private void GrantStartingAptitudeTokens(IServerPlayer player)
+        {
+            if (!Config.RequireGlyphs || Config.StartingAptitudeTokens <= 0) return;
+
+            Item item = sapi.World.GetItem(new AssetLocation(AptitudeGlyphItemCode));
+            if (item == null)
+            {
+                sapi.Logger.Warning("[Multiclass Reborn] Could not resolve starting token item {0}.", AptitudeGlyphItemCode);
+                return;
+            }
+
+            ItemStack stack = new ItemStack(item, Config.StartingAptitudeTokens);
+            if (player.InventoryManager.TryGiveItemstack(stack)) return;
+            if (stack.StackSize <= 0) return;
+
+            Vec3d dropPos = player.Entity.Pos.XYZ.Add(0, 0.25, 0);
+            sapi.World.SpawnItemEntity(stack, dropPos);
         }
 
         internal bool TryGrantClassSlot(IServerPlayer player)

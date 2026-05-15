@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using HarmonyLib;
 using multiclassreborn.systems;
 using Vintagestory.API.Client;
@@ -26,6 +25,9 @@ namespace multiclassreborn
         private const double ScrollbarPadding = 4;
 
         private static GuiComposer traitsComposer;
+        private static CairoFont traitsFont;
+        private static double traitsTextWidth;
+        private static string lastTraitText;
 
         /// <summary>
         /// Replaces the fixed vanilla trait text with clipped scrollable text.
@@ -39,6 +41,9 @@ namespace multiclassreborn
             string traitText = BuildTraitTabText(font, textWidth);
             double contentHeight = ClassTraitTextUtil.MeasureExplicitTextHeight(traitText, font, 1);
             traitsComposer = compo;
+            traitsFont = font;
+            traitsTextWidth = textWidth;
+            lastTraitText = traitText;
 
             ElementBounds clipBounds = ElementBounds.Fixed(0, 25, TraitTabContentWidth, TraitTabVisibleHeight);
             ElementBounds textBounds = ElementBounds.Fixed(0, 0, textWidth, contentHeight);
@@ -49,13 +54,32 @@ namespace multiclassreborn
             compo.AddRichtext(traitText, font, textBounds, "multiclassTraitsText");
             compo.EndClip();
 
-            if (contentHeight > TraitTabVisibleHeight)
-            {
-                compo.AddVerticalScrollbar(OnTraitsScroll, scrollbarBounds, "multiclassTraitsScrollbar");
-                compo.OnComposed += () => compo.GetScrollbar("multiclassTraitsScrollbar")?.SetHeights((float)TraitTabVisibleHeight, (float)contentHeight);
-            }
+            compo.AddVerticalScrollbar(OnTraitsScroll, scrollbarBounds, "multiclassTraitsScrollbar");
+            compo.OnComposed += () => compo.GetScrollbar("multiclassTraitsScrollbar")?.SetHeights((float)TraitTabVisibleHeight, (float)contentHeight);
 
             return false;
+        }
+
+        /// <summary>
+        /// Rebuilds the Traits tab text after class changes while the screen is open.
+        /// </summary>
+        internal static void RefreshOpenTraitsTab()
+        {
+            if (traitsComposer == null || traitsFont == null) return;
+
+            string traitText = BuildTraitTabText(traitsFont, traitsTextWidth);
+            if (traitText == lastTraitText) return;
+
+            double contentHeight = ClassTraitTextUtil.MeasureExplicitTextHeight(traitText, traitsFont, 1);
+            GuiElementRichtext richtext = traitsComposer.GetRichtext("multiclassTraitsText");
+            if (richtext == null) return;
+
+            richtext.Bounds.fixedHeight = contentHeight;
+            richtext.Bounds.CalcWorldBounds();
+            richtext.SetNewText(traitText, traitsFont);
+            richtext.RecomposeText();
+            traitsComposer.GetScrollbar("multiclassTraitsScrollbar")?.SetHeights((float)TraitTabVisibleHeight, (float)contentHeight);
+            lastTraitText = traitText;
         }
 
         /// <summary>
@@ -95,7 +119,7 @@ namespace multiclassreborn
             {
                 text.AppendLine(Lang.Get("multiclassreborn:traits-tab-base-class"));
                 text.AppendLine($"<strong>{ClassTraitTextUtil.GetClassName(mainClass.Code)}</strong>");
-                AppendTraitDetails(text, mainClass, classSystem, font, maxWidth, false);
+                AppendTraitDetails(text, mainClass, classSystem, state, font, maxWidth, false, null);
                 text.AppendLine();
             }
 
@@ -106,13 +130,18 @@ namespace multiclassreborn
 
             if (extraClasses.Count == 0) return text.ToString();
 
+            HashSet<string> appliedStatKeys = ClassTraitTextUtil.BuildAppliedExtraStatKeys(
+                classSystem,
+                extraClasses,
+                state.OnlyApplyBestPositiveTraitBonus,
+                state.OnlyApplyWorstNegativeTraitPenalty);
             text.AppendLine(Lang.Get("multiclassreborn:traits-tab-extra-classes"));
             foreach (string classCode in extraClasses)
             {
                 if (!classSystem.Ledger.ClassByCode.TryGetValue(classCode, out CharacterClass classDef)) continue;
 
                 text.AppendLine($"<strong>{ClassTraitTextUtil.GetClassName(classDef.Code)}</strong>");
-                AppendTraitDetails(text, classDef, classSystem, font, maxWidth, true);
+                AppendTraitDetails(text, classDef, classSystem, state, font, maxWidth, true, appliedStatKeys);
             }
 
             return text.ToString();
@@ -121,7 +150,7 @@ namespace multiclassreborn
         /// <summary>
         /// Writes trait names and wrapped bullet details for one class.
         /// </summary>
-        private static void AppendTraitDetails(StringBuilder text, CharacterClass classDef, MulticlassRebornModSystem classSystem, CairoFont font, double maxWidth, bool showScaledValues)
+        private static void AppendTraitDetails(StringBuilder text, CharacterClass classDef, MulticlassRebornModSystem classSystem, RebornPlayerClassState state, CairoFont font, double maxWidth, bool showScaledValues, HashSet<string> appliedStatKeys)
         {
             if (classDef.Traits == null || classDef.Traits.Length == 0)
             {
@@ -139,7 +168,8 @@ namespace multiclassreborn
                 {
                     foreach (KeyValuePair<string, double> stat in trait.Attributes)
                     {
-                        ClassTraitTextUtil.AppendWrappedBullet(text, BuildStatText(stat, classSystem, showScaledValues), font, maxWidth);
+                        bool isApplied = ClassTraitTextUtil.IsAppliedExtraStat(appliedStatKeys, traitCode, stat.Key);
+                        ClassTraitTextUtil.AppendWrappedBullet(text, ClassTraitTextUtil.BuildStatText(stat, state.ExtraClassScale, showScaledValues, isApplied), font, maxWidth);
                     }
                 }
 
@@ -150,56 +180,6 @@ namespace multiclassreborn
                     ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth);
                 }
             }
-        }
-
-        /// <summary>
-        /// Formats base stat text and optional extra-class scaled value.
-        /// </summary>
-        private static string BuildStatText(KeyValuePair<string, double> stat, MulticlassRebornModSystem classSystem, bool showScaledValue)
-        {
-            string baseText = Lang.Get($"charattribute-{stat.Key}-{stat.Value}");
-            if (!showScaledValue) return baseText;
-
-            string scaledText = BuildScaledStatText(baseText, classSystem.Config?.ExtraClassScale ?? 0.8f);
-            if (scaledText == baseText) return baseText;
-
-            string scaledValue = BuildCompactScaledValue(baseText, scaledText);
-            return $"{baseText} ({scaledValue})";
-        }
-
-        /// <summary>
-        /// Scales the first numeric value inside a translated stat phrase.
-        /// </summary>
-        private static string BuildScaledStatText(string baseText, float scale)
-        {
-            Match match = Regex.Match(baseText, @"([+-]?\d+(?:\.\d+)?)(%)?");
-            if (!match.Success) return baseText;
-
-            double value = double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-            string scaledNumber = FormatScaledNumber(value * scale);
-            string replacement = scaledNumber + match.Groups[2].Value;
-
-            return baseText.Substring(0, match.Index) + replacement + baseText.Substring(match.Index + match.Length);
-        }
-
-        /// <summary>
-        /// Keeps scaled display numbers compact and signed when useful.
-        /// </summary>
-        private static string FormatScaledNumber(double value)
-        {
-            string sign = value > 0 ? "+" : "";
-            return sign + value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        /// <summary>
-        /// Removes repeated stat labels from the scaled value when possible.
-        /// </summary>
-        private static string BuildCompactScaledValue(string baseText, string scaledText)
-        {
-            Match numericValue = Regex.Match(scaledText, @"[+-]?\d+(?:\.\d+)?%?");
-            if (numericValue.Success) return numericValue.Value;
-
-            return scaledText;
         }
     }
 }
