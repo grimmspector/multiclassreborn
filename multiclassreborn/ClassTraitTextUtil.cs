@@ -43,35 +43,32 @@ namespace multiclassreborn
             string name = Lang.GetIfExists("traitname-" + traitCode);
             if (!string.IsNullOrWhiteSpace(name)) return name;
 
-            name = StripVtml(Lang.Get("trait-" + traitCode)).TrimStart('•').Trim();
+            name = StripVtml(Lang.Get("trait-" + traitCode)).TrimStart('\u2022').Trim();
             if (!string.IsNullOrWhiteSpace(name) && !name.StartsWith("trait-", StringComparison.OrdinalIgnoreCase)) return name;
 
             return CapitalizeCode(traitCode);
         }
 
         /// <summary>
-        /// Adds a wrapped bullet line using measured font width.
+        /// Adds a wrapped bullet line using measured visible text width.
         /// </summary>
         internal static void AppendWrappedBullet(StringBuilder text, string content, CairoFont font, double maxWidth)
         {
-            AppendWrappedLine(text, "    • ", "      ", StripVtml(content), font, maxWidth);
+            AppendWrappedLine(text, "    \u2022 ", "      ", content, font, maxWidth);
         }
 
         /// <summary>
-        /// Adds a wrapped line using measured font width.
+        /// Adds a wrapped line while preserving VTML markup.
         /// </summary>
         internal static void AppendWrappedLine(StringBuilder text, string prefix, string continuationPrefix, string content, CairoFont font, double maxWidth)
         {
             string cleanContent = StripVtml(content);
-            if (string.IsNullOrWhiteSpace(cleanContent))
-            {
-                text.AppendLine(prefix.TrimEnd());
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(cleanContent)) return;
 
-            double firstWidth = Math.Max(1, maxWidth - MeasureTextWidth(prefix, font));
-            double nextWidth = Math.Max(1, maxWidth - MeasureTextWidth(continuationPrefix, font));
-            List<string> lines = WrapPlainText(cleanContent, font, firstWidth, nextWidth);
+            double wrapTolerance = Math.Min(96, maxWidth * 0.22);
+            double firstWidth = Math.Max(1, maxWidth - MeasureTextWidth(prefix, font) + wrapTolerance);
+            double nextWidth = Math.Max(1, maxWidth - MeasureTextWidth(continuationPrefix, font) + wrapTolerance);
+            List<string> lines = WrapVtmlText(content, font, firstWidth, nextWidth);
 
             for (int i = 0; i < lines.Count; i++)
             {
@@ -101,6 +98,17 @@ namespace multiclassreborn
         }
 
         /// <summary>
+        /// Tests localized VTML for real visible text.
+        /// </summary>
+        internal static bool HasVisibleLocalizedText(string text, string localizationKey)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            if (text.Equals(localizationKey, StringComparison.OrdinalIgnoreCase)) return false;
+
+            return !string.IsNullOrWhiteSpace(StripVtml(text));
+        }
+
+        /// <summary>
         /// Measures rendered text width with the active GUI font.
         /// </summary>
         private static double MeasureTextWidth(string text, CairoFont font)
@@ -109,30 +117,145 @@ namespace multiclassreborn
         }
 
         /// <summary>
-        /// Splits plain text into measured lines without breaking words.
+        /// Splits VTML into measured lines without counting tags as text.
         /// </summary>
-        private static List<string> WrapPlainText(string text, CairoFont font, double firstWidth, double nextWidth)
+        private static List<string> WrapVtmlText(string text, CairoFont font, double firstWidth, double nextWidth)
         {
             List<string> lines = new List<string>();
-            string line = "";
+            StringBuilder line = new StringBuilder();
+            List<VtmlTag> activeTags = new List<VtmlTag>();
+            string visibleLine = "";
             double maxWidth = firstWidth;
 
-            foreach (string word in text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (Match match in Regex.Matches(text ?? "", "<[^>]+>|[^<]+"))
             {
-                string candidate = string.IsNullOrEmpty(line) ? word : line + " " + word;
-                if (!string.IsNullOrEmpty(line) && MeasureTextWidth(candidate, font) > maxWidth)
+                string part = match.Value;
+
+                if (IsVtmlTag(part))
                 {
-                    lines.Add(line);
-                    line = word;
-                    maxWidth = nextWidth;
+                    if (IsLineBreakTag(part))
+                    {
+                        FinishWrappedLine(lines, line, activeTags);
+                        visibleLine = "";
+                        maxWidth = nextWidth;
+                        continue;
+                    }
+
+                    line.Append(part);
+                    TrackActiveTag(activeTags, part);
                     continue;
                 }
 
-                line = candidate;
+                foreach (Match wordMatch in Regex.Matches(part, @"\S+"))
+                {
+                    string word = wordMatch.Value;
+                    bool punctuationOnly = IsTrailingPunctuation(word);
+                    string separator = string.IsNullOrEmpty(visibleLine) || punctuationOnly ? "" : " ";
+                    string candidate = visibleLine + separator + word;
+
+                    if (!string.IsNullOrEmpty(visibleLine) && MeasureTextWidth(candidate, font) > maxWidth)
+                    {
+                        FinishWrappedLine(lines, line, activeTags);
+                        visibleLine = "";
+                        maxWidth = nextWidth;
+                        separator = "";
+                    }
+
+                    if (!string.IsNullOrEmpty(separator))
+                    {
+                        line.Append(separator);
+                        visibleLine += separator;
+                    }
+
+                    line.Append(word);
+                    visibleLine += word;
+                }
             }
 
-            if (!string.IsNullOrEmpty(line)) lines.Add(line);
-            return lines.Count == 0 ? new List<string> { text } : lines;
+            if (!string.IsNullOrWhiteSpace(StripVtml(line.ToString())))
+            {
+                FinishWrappedLine(lines, line, activeTags);
+            }
+
+            return lines.Count == 0 ? new List<string> { StripVtml(text) } : lines;
+        }
+
+        /// <summary>
+        /// Closes active VTML tags before a line break and reopens them after.
+        /// </summary>
+        private static void FinishWrappedLine(List<string> lines, StringBuilder line, List<VtmlTag> activeTags)
+        {
+            if (line.Length == 0) return;
+
+            for (int i = activeTags.Count - 1; i >= 0; i--)
+            {
+                line.Append("</").Append(activeTags[i].Name).Append(">");
+            }
+
+            lines.Add(line.ToString());
+            line.Clear();
+
+            foreach (VtmlTag tag in activeTags)
+            {
+                line.Append(tag.OpeningTag);
+            }
+        }
+
+        /// <summary>
+        /// Tracks open VTML tags so wrapped links remain valid.
+        /// </summary>
+        private static void TrackActiveTag(List<VtmlTag> activeTags, string tag)
+        {
+            string name = GetTagName(tag);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            if (tag.StartsWith("</", StringComparison.Ordinal))
+            {
+                for (int i = activeTags.Count - 1; i >= 0; i--)
+                {
+                    if (!activeTags[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    activeTags.RemoveAt(i);
+                    break;
+                }
+
+                return;
+            }
+
+            if (tag.EndsWith("/>", StringComparison.Ordinal)) return;
+            activeTags.Add(new VtmlTag(name, tag));
+        }
+
+        /// <summary>
+        /// Gets a VTML tag name from a raw tag token.
+        /// </summary>
+        private static string GetTagName(string tag)
+        {
+            Match match = Regex.Match(tag, @"^</?\s*([a-zA-Z0-9]+)");
+            return match.Success ? match.Groups[1].Value : "";
+        }
+
+        /// <summary>
+        /// Tests whether a token is a VTML tag.
+        /// </summary>
+        private static bool IsVtmlTag(string part)
+        {
+            return part.StartsWith("<", StringComparison.Ordinal) && part.EndsWith(">", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Tests VTML line break tags.
+        /// </summary>
+        private static bool IsLineBreakTag(string tag)
+        {
+            return Regex.IsMatch(tag, @"^<\s*br\s*/?\s*>$", RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
+        /// Tests punctuation that should hug the previous word or link.
+        /// </summary>
+        private static bool IsTrailingPunctuation(string text)
+        {
+            return Regex.IsMatch(text, @"^[,.;:!?]+$");
         }
 
         /// <summary>
@@ -160,6 +283,18 @@ namespace multiclassreborn
             }
 
             return string.Join(" ", parts);
+        }
+
+        private sealed class VtmlTag
+        {
+            internal readonly string Name;
+            internal readonly string OpeningTag;
+
+            internal VtmlTag(string name, string openingTag)
+            {
+                Name = name;
+                OpeningTag = openingTag;
+            }
         }
     }
 }

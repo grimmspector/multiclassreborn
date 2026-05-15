@@ -8,13 +8,14 @@ using Vintagestory.API.Server;
 
 namespace multiclassreborn.items
 {
-    internal class ClassForgetRuneItem : Item
+    internal class ClassSlotGlyphItem : Item
     {
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handHandling)
         {
             base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling);
 
             if (!firstEvent) return;
+            if (byEntity?.Controls?.Sneak == true) return;
 
             handHandling = EnumHandHandling.PreventDefault;
 
@@ -25,9 +26,9 @@ namespace multiclassreborn.items
             if (player == null) return;
 
             MulticlassRebornModSystem classSystem = api.ModLoader.GetModSystem<MulticlassRebornModSystem>();
-            if (!classSystem.TryGrantForgetCredit(player)) return;
+            if (!classSystem.TryGrantClassSlot(player)) return;
 
-            // Consume only after the forget credit is written to the player.
+            // Consume only after the class system accepts the slot grant.
             slot.TakeOut(1);
             slot.MarkDirty();
         }
@@ -38,7 +39,7 @@ namespace multiclassreborn.items
             {
                 new WorldInteraction()
                 {
-                    ActionLangCode = "multiclass:heldhelp-addunlearnslot",
+                    ActionLangCode = "multiclassreborn:heldhelp-addslot",
                     MouseButton = EnumMouseButton.Right
                 }
             };

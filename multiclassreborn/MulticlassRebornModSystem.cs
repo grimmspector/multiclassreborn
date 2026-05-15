@@ -20,14 +20,17 @@ namespace multiclassreborn
     public class MulticlassRebornModSystem : ModSystem
     {
         private const string ExtraTraitsAttribute = "extraTraits";
-        private const string ClassRuneItemCode = "multiclass:classrune";
-        private const string ForgetRuneItemCode = "multiclass:unlearnrune";
+        private const string AptitudeGlyphItemCode = "multiclassreborn:aptitude-glyphstone";
+        private const string RetrainGlyphItemCode = "multiclassreborn:retraining-glyphstone";
+        private const string HandbookPageCode = "gamemechanicinfo-multiclassreborn";
+        private const string CommonerClassCode = "commoner";
 
         private ICoreAPI api;
         private ICoreServerAPI sapi;
         private ICoreClientAPI capi;
         private ClassPickerDialog classDialog;
         private Harmony clientHarmony;
+        private ModSystemSurvivalHandbook survivalHandbook;
 
         internal RebornClassConfig Config { get; private set; }
         internal ICoreClientAPI ClientApi => capi;
@@ -47,8 +50,8 @@ namespace multiclassreborn
 
             this.api = api;
 
-            api.RegisterItemClass("ClassRune", typeof(ClassSlotRuneItem));
-            api.RegisterItemClass("UnlearnRune", typeof(ClassForgetRuneItem));
+            api.RegisterItemClass("AptitudeGlyphstone", typeof(ClassSlotGlyphItem));
+            api.RegisterItemClass("RetrainingGlyphstone", typeof(ClassRetrainGlyphItem));
         }
 
         public override void StartServerSide(ICoreServerAPI api)
@@ -59,15 +62,18 @@ namespace multiclassreborn
 
             sapi.Event.PlayerJoin += PreparePlayerState;
             RegisterClassCommands();
+            RegisterGlyphstoneRecipes();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, Scale={3:P0}, MaxSlots={4}, RequireRunes={5}, SuppressDuplicateExtraStats={6}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, RequireGlyphs={6}, BestPositiveOnly={7}, WorstNegativeOnly={8}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
+                Config.EnableGlyphstoneRecipes,
                 Config.ExtraClassScale,
                 Config.MaxExtraClasses,
-                Config.RequireRunes,
-                Config.SuppressDuplicateExtraStats);
+                Config.RequireGlyphs,
+                Config.OnlyApplyBestPositiveTraitBonus,
+                Config.OnlyApplyWorstNegativeTraitPenalty);
         }
 
         public override void StartClientSide(ICoreClientAPI api)
@@ -80,8 +86,14 @@ namespace multiclassreborn
             clientHarmony = new Harmony("multiclassreborn.client");
             clientHarmony.PatchAll();
 
+            survivalHandbook = capi.ModLoader.GetModSystem<ModSystemSurvivalHandbook>();
+            if (survivalHandbook != null)
+            {
+                survivalHandbook.OnInitCustomPages += MoveGuideAfterVanillaGuides;
+            }
+
             classDialog = new ClassPickerDialog(capi, this);
-            capi.Input.RegisterHotKey("multiclassgui", "Open Class Selection", GlKeys.K, HotkeyType.GUIOrOtherControls, false, true, false);
+            capi.Input.RegisterHotKey("multiclassgui", Lang.Get("multiclassreborn:hotkey-open-class-selection"), GlKeys.K, HotkeyType.GUIOrOtherControls, false, true, false);
             capi.Input.SetHotKeyHandler("multiclassgui", _ =>
             {
                 classDialog.Toggle();
@@ -94,10 +106,39 @@ namespace multiclassreborn
         /// </summary>
         public override void Dispose()
         {
+            if (survivalHandbook != null)
+            {
+                survivalHandbook.OnInitCustomPages -= MoveGuideAfterVanillaGuides;
+            }
+
             clientHarmony?.UnpatchAll("multiclassreborn.client");
             if (ClientInstance == this) ClientInstance = null;
 
             base.Dispose();
+        }
+
+        /// <summary>
+        /// Places our guide after vanilla tutorial and game mechanic pages.
+        /// </summary>
+        private static void MoveGuideAfterVanillaGuides(List<GuiHandbookPage> pages)
+        {
+            int guideIndex = pages.FindIndex(page => page.PageCode == HandbookPageCode);
+            if (guideIndex < 0) return;
+
+            GuiHandbookPage guidePage = pages[guideIndex];
+            pages.RemoveAt(guideIndex);
+
+            int insertIndex = pages.FindLastIndex(IsVanillaGuidePage) + 1;
+            pages.Insert(insertIndex, guidePage);
+        }
+
+        /// <summary>
+        /// Detects vanilla-style guide pages by their handbook page code.
+        /// </summary>
+        private static bool IsVanillaGuidePage(GuiHandbookPage page)
+        {
+            return page.PageCode.StartsWith("gamemechanicinfo-", StringComparison.OrdinalIgnoreCase)
+                || page.PageCode.StartsWith("tutorial-", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -108,63 +149,158 @@ namespace multiclassreborn
             CommandArgumentParsers parsers = sapi.ChatCommands.Parsers;
 
             sapi.ChatCommands.Create("multiclass")
-                .WithDescription("Manage extra character classes")
+                .WithDescription(Lang.Get("multiclassreborn:command-multiclass-description"))
                 .RequiresPlayer()
                 .RequiresPrivilege(Privilege.chat)
                 .BeginSubCommand("add")
                     .WithArgs(parsers.Word("classcode"))
-                    .WithDescription("Add an extra class")
+                    .WithDescription(Lang.Get("multiclassreborn:command-add-description"))
                     .HandleWith(args => RunPlayerCommand(args, player => LearnExtraClass(player, (string)args[0])))
                 .EndSubCommand()
                 .BeginSubCommand("remove")
                     .WithArgs(parsers.Word("classcode"))
-                    .WithDescription("Remove an extra class")
-                    .HandleWith(args => RunPlayerCommand(args, player => ForgetExtraClass(player, (string)args[0])))
+                    .WithDescription(Lang.Get("multiclassreborn:command-remove-description"))
+                    .HandleWith(args => RunPlayerCommand(args, RejectUnconfirmedForget))
+                .EndSubCommand()
+                .BeginSubCommand("confirmforget")
+                    .WithArgs(parsers.Word("classcode"))
+                    .WithDescription(Lang.Get("multiclassreborn:command-confirmforget-description"))
+                    .HandleWith(args => RunPlayerCommand(args, player => ForgetClassAfterConfirmation(player, (string)args[0])))
+                .EndSubCommand()
+                .BeginSubCommand("setbase")
+                    .WithArgs(parsers.Word("classcode"))
+                    .WithDescription(Lang.Get("multiclassreborn:command-setbase-description"))
+                    .HandleWith(args => RunPlayerCommand(args, player => ChooseBaseClass(player, (string)args[0])))
                 .EndSubCommand()
                 .BeginSubCommand("list")
-                    .WithDescription("List your extra classes")
+                    .WithDescription(Lang.Get("multiclassreborn:command-list-description"))
                     .HandleWith(args => RunPlayerCommand(args, ShowExtraClassList))
                 .EndSubCommand()
                 .BeginSubCommand("available")
-                    .WithDescription("List available class codes")
+                    .WithDescription(Lang.Get("multiclassreborn:command-available-description"))
                     .HandleWith(args => RunPlayerCommand(args, ShowAvailableClasses))
                 .EndSubCommand()
                 .BeginSubCommand("info")
                     .WithArgs(parsers.Word("classcode"))
-                    .WithDescription("Show class details")
+                    .WithDescription(Lang.Get("multiclassreborn:command-info-description"))
                     .HandleWith(args => RunPlayerCommand(args, player => ShowClassDetails(player, (string)args[0])))
                 .EndSubCommand()
                 .BeginSubCommand("summary")
-                    .WithDescription("Show your class slot summary")
+                    .WithDescription(Lang.Get("multiclassreborn:command-summary-description"))
                     .HandleWith(args => RunPlayerCommand(args, ShowClassSummary))
                 .EndSubCommand()
                 .BeginSubCommand("clear")
-                    .WithDescription("Clear all extra classes")
+                    .WithDescription(Lang.Get("multiclassreborn:command-clear-description"))
                     .HandleWith(args => RunPlayerCommand(args, ClearExtraClasses))
                 .EndSubCommand()
-                .BeginSubCommand("giverune")
+                .BeginSubCommand("giveglyph")
                     .WithArgs(parsers.Word("playername"))
-                    .WithDescription("Give a class slot rune to an online player")
+                    .WithDescription(Lang.Get("multiclassreborn:command-giveaptitudeglyph-description"))
                     .RequiresPrivilege(Privilege.controlserver)
-                    .HandleWith(args => RunPlayerCommand(args, player => GiveRuneItem(player, (string)args[0], ClassRuneItemCode, "Class Rune")))
+                    .HandleWith(args => RunPlayerCommand(args, player => GiveAptitudeGlyphItem(player, (string)args[0], AptitudeGlyphItemCode, "item-aptitude-glyphstone")))
                 .EndSubCommand()
-                .BeginSubCommand("giveremovalrune")
+                .BeginSubCommand("giveretrainglyph")
                     .WithArgs(parsers.Word("playername"))
-                    .WithDescription("Give a class forget rune to an online player")
+                    .WithDescription(Lang.Get("multiclassreborn:command-giveretrainglyph-description"))
                     .RequiresPrivilege(Privilege.controlserver)
-                    .HandleWith(args => RunPlayerCommand(args, player => GiveRuneItem(player, (string)args[0], ForgetRuneItemCode, "Class Forget Rune")))
+                    .HandleWith(args => RunPlayerCommand(args, player => GiveAptitudeGlyphItem(player, (string)args[0], RetrainGlyphItemCode, "item-retraining-glyphstone")))
                 .EndSubCommand();
+        }
+
+        /// <summary>
+        /// Registers optional glyphstone crafting recipes for testing servers.
+        /// </summary>
+        private void RegisterGlyphstoneRecipes()
+        {
+            if (!Config.EnableGlyphstoneRecipes) return;
+
+            RegisterGlyphstoneRecipe("craft-aptitude-glyphstone", AptitudeGlyphItemCode, "clearquartz");
+            RegisterGlyphstoneRecipe("craft-retraining-glyphstone", RetrainGlyphItemCode, "gear-rusty");
+        }
+
+        /// <summary>
+        /// Registers one shaped glyphstone recipe with a role item.
+        /// </summary>
+        private void RegisterGlyphstoneRecipe(string recipeName, string outputCode, string roleItemCode)
+        {
+            GridRecipe recipe = new GridRecipe()
+            {
+                Name = new AssetLocation("multiclassreborn", recipeName),
+                Enabled = true,
+                Shapeless = false,
+                IngredientPattern = "ATB,CDE,FRH",
+                Width = 3,
+                Height = 3,
+                Ingredients = new Dictionary<string, CraftingRecipeIngredient>()
+                {
+                    { "A", StoneIngredient() },
+                    { "B", StoneIngredient() },
+                    { "C", MetalBitIngredient() },
+                    { "D", ItemIngredient("gem-diamond-rough") },
+                    { "E", MetalBitIngredient() },
+                    { "F", StoneIngredient() },
+                    { "H", StoneIngredient() },
+                    { "R", ItemIngredient(roleItemCode) },
+                    { "T", ItemIngredient("gear-temporal") }
+                },
+                Output = ItemIngredient(outputCode)
+            };
+
+            if (!recipe.Resolve(sapi.World, recipe.Name.ToString()))
+            {
+                sapi.Logger.Warning("[Multiclass Reborn] Could not resolve glyphstone recipe {0}.", recipe.Name);
+                return;
+            }
+
+            sapi.RegisterCraftingRecipe(recipe);
+        }
+
+        /// <summary>
+        /// Builds a wildcard ingredient for any vanilla-category stone piece.
+        /// </summary>
+        private CraftingRecipeIngredient StoneIngredient()
+        {
+            return ItemIngredient("stone-*");
+        }
+
+        /// <summary>
+        /// Builds a wildcard ingredient for gold or silver metal bits.
+        /// </summary>
+        private CraftingRecipeIngredient MetalBitIngredient()
+        {
+            CraftingRecipeIngredient ingredient = ItemIngredient("metalbit-*");
+            ingredient.AllowedVariants = new[] { "gold", "silver" };
+
+            return ingredient;
+        }
+
+        /// <summary>
+        /// Builds one item ingredient for programmatic grid recipes.
+        /// </summary>
+        private CraftingRecipeIngredient ItemIngredient(string code)
+        {
+            return new CraftingRecipeIngredient()
+            {
+                Type = EnumItemClass.Item,
+                Code = new AssetLocation(code),
+                Quantity = 1
+            };
         }
 
         private TextCommandResult RunPlayerCommand(TextCommandCallingArgs args, Action<IServerPlayer> action)
         {
             if (args.Caller.Player is not IServerPlayer player)
             {
-                return TextCommandResult.Error("Must be a player.", "");
+                return TextCommandResult.Error(Lang.Get("multiclassreborn:message-must-be-player"), "");
             }
 
             action(player);
             return TextCommandResult.Success("", null);
+        }
+
+        internal void OpenClassDialogForRetraining()
+        {
+            classDialog?.OpenForRetraining();
         }
 
         private void PreparePlayerState(IServerPlayer player)
@@ -173,9 +309,11 @@ namespace multiclassreborn
 
             // Always sync the current token rule. The old implementation only
             // wrote true, which could leave clients stuck after config changes.
-            state.RequiresRunes = Config.RequireRunes;
+            state.RequiresGlyphs = Config.RequireGlyphs;
+            state.AllowsBaseClassForgetting = Config.AllowForgettingBaseClass;
+            state.AllowsCommonerBaseClassChoice = Config.AllowCommonersChooseBaseClass;
 
-            if (!Config.RequireRunes)
+            if (!Config.RequireGlyphs)
             {
                 // Free-slot servers should give every player the configured
                 // class capacity, including players migrated from rune servers.
@@ -188,6 +326,7 @@ namespace multiclassreborn
             }
 
             RecountUsedSlots(state);
+            MigrateLegacyGlyphItems(player);
             ReapplyClassEffects(player);
         }
 
@@ -197,22 +336,13 @@ namespace multiclassreborn
 
             if (state.AvailableSlots >= Config.MaxExtraClasses)
             {
-                Tell(player, $"You already have the maximum class slots ({Config.MaxExtraClasses}).", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-max-class-slots", Config.MaxExtraClasses), EnumChatType.Notification);
                 return false;
             }
 
             state.AvailableSlots++;
-            Tell(player, $"Class Rune consumed! You now have {state.AvailableSlots} class slots ({state.UsedSlots} used).", EnumChatType.Notification);
+            Tell(player, Lang.Get("multiclassreborn:message-aptitude-consumed", state.AvailableSlots, state.UsedSlots), EnumChatType.Notification);
 
-            return true;
-        }
-
-        internal bool TryGrantForgetCredit(IServerPlayer player)
-        {
-            RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
-            state.RemovalCredits++;
-
-            Tell(player, $"Class Forget Rune consumed! You can now forget {state.RemovalCredits} extra classes.", EnumChatType.Notification);
             return true;
         }
 
@@ -223,32 +353,32 @@ namespace multiclassreborn
 
             if (!Ledger.ClassByCode.ContainsKey(normalizedCode))
             {
-                Tell(player, $"Class '{normalizedCode}' does not exist. Use /multiclass available to see valid classes.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-class-does-not-exist", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
             if (GetMainClassCode(player.Entity).Equals(normalizedCode, StringComparison.OrdinalIgnoreCase))
             {
-                Tell(player, $"'{normalizedCode}' is already your main class.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-already-main-class", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
             List<string> extraClasses = state.ExtraClasses;
             if (extraClasses.Contains(normalizedCode))
             {
-                Tell(player, $"You already have {normalizedCode}.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-already-have-class", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
             if (state.UsedSlots >= state.AvailableSlots)
             {
-                Tell(player, $"No available class slots ({state.UsedSlots}/{state.AvailableSlots}). Use a Class Rune or forget another class.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-no-class-slots", state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
                 return;
             }
 
             if (extraClasses.Count >= Config.MaxExtraClasses)
             {
-                Tell(player, $"Cannot add more classes. Maximum is {Config.MaxExtraClasses}.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-cannot-add-more-classes", Config.MaxExtraClasses), EnumChatType.Notification);
                 return;
             }
 
@@ -257,37 +387,232 @@ namespace multiclassreborn
             state.UsedSlots = extraClasses.Count;
 
             ReapplyClassEffects(player);
-            Tell(player, $"Added extra class '{normalizedCode}' (slots: {state.UsedSlots}/{state.AvailableSlots}).", EnumChatType.Notification);
+            Tell(player, Lang.Get("multiclassreborn:message-added-extra-class", normalizedCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
         }
 
         internal void ForgetExtraClass(IServerPlayer player, string classCode)
         {
+            ForgetExtraClass(player, classCode, false);
+        }
+
+        private void RejectUnconfirmedForget(IServerPlayer player)
+        {
+            Tell(player, Lang.Get("multiclassreborn:message-open-retraining-confirm"), EnumChatType.Notification);
+        }
+
+        internal void ForgetClassAfterConfirmation(IServerPlayer player, string classCode)
+        {
+            string normalizedCode = NormalizeClassCode(classCode);
+            string mainClassCode = GetMainClassCode(player.Entity);
+
+            if (mainClassCode.Equals(normalizedCode, StringComparison.OrdinalIgnoreCase))
+            {
+                ForgetBaseClassAfterConfirmation(player, normalizedCode);
+                return;
+            }
+
+            ForgetExtraClass(player, normalizedCode, Config.RequireGlyphs);
+        }
+
+        private void ForgetExtraClass(IServerPlayer player, string classCode, bool consumeGlyphstone)
+        {
             string normalizedCode = NormalizeClassCode(classCode);
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
 
-            if (Config.RequireRunes && state.RemovalCredits <= 0)
+            if (consumeGlyphstone && !TryConsumeRetrainingGlyphstone(player))
             {
-                Tell(player, "You need a Class Forget Rune before removing an extra class.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-need-retraining-extra"), EnumChatType.Notification);
                 return;
             }
 
             List<string> extraClasses = state.ExtraClasses;
             if (!extraClasses.Remove(normalizedCode))
             {
-                Tell(player, $"Extra class '{normalizedCode}' not found.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-extra-class-not-found", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
             state.ExtraClasses = extraClasses;
             state.UsedSlots = extraClasses.Count;
 
-            if (Config.RequireRunes)
+            ReapplyClassEffects(player);
+            Tell(player, Lang.Get("multiclassreborn:message-removed-extra-class", normalizedCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
+        }
+
+        private void ForgetBaseClassAfterConfirmation(IServerPlayer player, string classCode)
+        {
+            if (!Config.AllowForgettingBaseClass)
             {
-                state.RemovalCredits = Math.Max(0, state.RemovalCredits - 1);
+                Tell(player, Lang.Get("multiclassreborn:message-base-forgetting-disabled"), EnumChatType.Notification);
+                return;
             }
 
+            if (NormalizeClassCode(classCode).Equals(CommonerClassCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-already-commoner"), EnumChatType.Notification);
+                return;
+            }
+
+            if (Config.RequireGlyphs && !TryConsumeRetrainingGlyphstone(player))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-need-retraining-base"), EnumChatType.Notification);
+                return;
+            }
+
+            player.Entity.WatchedAttributes.SetString("characterClass", CommonerClassCode);
+            player.Entity.WatchedAttributes.MarkPathDirty("characterClass");
             ReapplyClassEffects(player);
-            Tell(player, $"Removed extra class '{normalizedCode}' (slots: {state.UsedSlots}/{state.AvailableSlots}).", EnumChatType.Notification);
+            Tell(player, Lang.Get("multiclassreborn:message-forgot-base-class"), EnumChatType.Notification);
+        }
+
+        private void ChooseBaseClass(IServerPlayer player, string classCode)
+        {
+            string normalizedCode = NormalizeClassCode(classCode);
+
+            if (!Config.AllowCommonersChooseBaseClass)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-commoner-base-choice-disabled"), EnumChatType.Notification);
+                return;
+            }
+
+            if (!GetMainClassCode(player.Entity).Equals(CommonerClassCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-only-commoners-choose-base"), EnumChatType.Notification);
+                return;
+            }
+
+            if (!Ledger.ClassByCode.ContainsKey(normalizedCode) || normalizedCode.Equals(CommonerClassCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-class-cannot-be-base", normalizedCode), EnumChatType.Notification);
+                return;
+            }
+
+            RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
+            List<string> extraClasses = state.ExtraClasses;
+            if (extraClasses.Remove(normalizedCode))
+            {
+                state.ExtraClasses = extraClasses;
+                state.UsedSlots = extraClasses.Count;
+            }
+
+            player.Entity.WatchedAttributes.SetString("characterClass", normalizedCode);
+            player.Entity.WatchedAttributes.MarkPathDirty("characterClass");
+            ReapplyClassEffects(player);
+            Tell(player, Lang.Get("multiclassreborn:message-set-base-class", normalizedCode), EnumChatType.Notification);
+        }
+
+        private bool TryConsumeRetrainingGlyphstone(IServerPlayer player)
+        {
+            ItemSlot activeSlot = player.InventoryManager.ActiveHotbarSlot;
+            if (TryConsumeFromSlot(activeSlot, RetrainGlyphItemCode)) return true;
+
+            foreach (IInventory inventory in player.InventoryManager.InventoriesOrdered)
+            {
+                if (!IsHotbarInventory(inventory)) continue;
+                if (!TryGetInventoryCount(inventory, out int slotCount)) continue;
+
+                for (int slotId = 0; slotId < slotCount; slotId++)
+                {
+                    if (TryConsumeFromSlot(inventory[slotId], RetrainGlyphItemCode)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryConsumeFromSlot(ItemSlot slot, string itemCode)
+        {
+            if (slot == null || slot.Empty) return false;
+            if (!slot.Itemstack.Collectible.Code.Equals(new AssetLocation(itemCode))) return false;
+
+            slot.TakeOut(1);
+            slot.MarkDirty();
+            return true;
+        }
+
+        private bool IsHotbarInventory(IInventory inventory)
+        {
+            string inventoryId = inventory?.InventoryID ?? "";
+            string className = inventory?.ClassName ?? "";
+
+            return inventoryId.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) >= 0
+                || className.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void MigrateLegacyGlyphItems(IServerPlayer player)
+        {
+            foreach (IInventory inventory in player.InventoryManager.InventoriesOrdered)
+            {
+                if (!ShouldMigrateInventory(inventory)) continue;
+                if (!TryGetInventoryCount(inventory, out int slotCount)) continue;
+
+                for (int slotId = 0; slotId < slotCount; slotId++)
+                {
+                    MigrateLegacyGlyphSlot(inventory[slotId]);
+                }
+            }
+        }
+
+        private bool ShouldMigrateInventory(IInventory inventory)
+        {
+            if (inventory == null) return false;
+
+            string inventoryId = inventory.InventoryID ?? "";
+            string className = inventory.ClassName ?? "";
+
+            if (className.IndexOf("creative", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (inventoryId.IndexOf("creative", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            return inventoryId.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) >= 0
+                || inventoryId.IndexOf("backpack", StringComparison.OrdinalIgnoreCase) >= 0
+                || inventoryId.IndexOf("character", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private bool TryGetInventoryCount(IInventory inventory, out int slotCount)
+        {
+            slotCount = 0;
+
+            try
+            {
+                slotCount = inventory?.Count ?? 0;
+                return slotCount > 0;
+            }
+            catch (Exception exception)
+            {
+                sapi.Logger.VerboseDebug("[Multiclass Reborn] Skipping inventory migration for {0}: {1}",
+                    inventory?.InventoryID ?? "(unknown)",
+                    exception.Message);
+                return false;
+            }
+        }
+
+        private void MigrateLegacyGlyphSlot(ItemSlot slot)
+        {
+            if (slot == null || slot.Empty) return;
+
+            string oldCode = slot.Itemstack.Collectible.Code.ToString();
+            string newCode = oldCode switch
+            {
+                "multiclass:classrune" => AptitudeGlyphItemCode,
+                "multiclass:classglyphstone" => AptitudeGlyphItemCode,
+                "multiclassreborn:classrune" => AptitudeGlyphItemCode,
+                "multiclassreborn:classglyphstone" => AptitudeGlyphItemCode,
+                "multiclass:unlearnrune" => RetrainGlyphItemCode,
+                "multiclass:forgetglyphstone" => RetrainGlyphItemCode,
+                "multiclassreborn:unlearnrune" => RetrainGlyphItemCode,
+                "multiclassreborn:forgetglyphstone" => RetrainGlyphItemCode,
+                _ => null
+            };
+
+            if (newCode == null) return;
+
+            Item replacementItem = sapi.World.GetItem(new AssetLocation(newCode));
+            if (replacementItem == null) return;
+
+            ItemStack replacementStack = new ItemStack(replacementItem, slot.Itemstack.StackSize);
+            replacementStack.Attributes = slot.Itemstack.Attributes?.Clone();
+            slot.Itemstack = replacementStack;
+            slot.MarkDirty();
         }
 
         private void ClearExtraClasses(IServerPlayer player)
@@ -297,30 +622,34 @@ namespace multiclassreborn
             state.UsedSlots = 0;
 
             ClearRebornStats(player);
-            Tell(player, "All extra classes cleared and stats reset.", EnumChatType.Notification);
+            Tell(player, Lang.Get("multiclassreborn:message-extra-classes-cleared"), EnumChatType.Notification);
         }
 
         private void ShowExtraClassList(IServerPlayer player)
         {
             List<string> extraClasses = new RebornPlayerClassState(player.Entity).ExtraClasses;
-            Tell(player, extraClasses.Count == 0 ? "No extra classes assigned." : $"Extra classes: {string.Join(", ", extraClasses)}", EnumChatType.Notification);
+            Tell(player, extraClasses.Count == 0
+                ? Lang.Get("multiclassreborn:message-no-extra-classes")
+                : Lang.Get("multiclassreborn:message-extra-classes", string.Join(", ", extraClasses)), EnumChatType.Notification);
         }
 
         private void ShowAvailableClasses(IServerPlayer player)
         {
             List<string> classCodes = Ledger.EnabledClasses.Select(classDef => classDef.Code).OrderBy(code => code).ToList();
-            Tell(player, classCodes.Count == 0 ? "No class definitions found." : $"Available classes ({classCodes.Count}): {string.Join(", ", classCodes)}", EnumChatType.Notification);
+            Tell(player, classCodes.Count == 0
+                ? Lang.Get("multiclassreborn:message-no-class-definitions")
+                : Lang.Get("multiclassreborn:message-available-classes", classCodes.Count, string.Join(", ", classCodes)), EnumChatType.Notification);
         }
 
         private void ShowClassSummary(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
             List<string> extraClasses = state.ExtraClasses;
-            string message = $"Slots: {state.UsedSlots}/{state.AvailableSlots} | Main: {GetMainClassCode(player.Entity)}";
+            string message = Lang.Get("multiclassreborn:message-class-summary", state.UsedSlots, state.AvailableSlots, GetMainClassCode(player.Entity));
 
             if (extraClasses.Count > 0)
             {
-                message += $" | Extra: {string.Join(", ", extraClasses)}";
+                message += Lang.Get("multiclassreborn:message-class-summary-extra", string.Join(", ", extraClasses));
             }
 
             Tell(player, message, EnumChatType.Notification);
@@ -332,20 +661,20 @@ namespace multiclassreborn
 
             if (!Ledger.ClassByCode.TryGetValue(normalizedCode, out CharacterClass classDef))
             {
-                Tell(player, $"Class '{normalizedCode}' not found.", EnumChatType.Notification);
+                Tell(player, Lang.Get("multiclassreborn:message-class-not-found", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
             StringBuilder text = new StringBuilder();
-            text.AppendLine($"=== Class '{normalizedCode}' ===");
+            text.AppendLine(Lang.Get("multiclassreborn:message-class-details-header", normalizedCode));
 
             if (classDef.Traits == null || classDef.Traits.Length == 0)
             {
-                text.AppendLine("Traits: none");
+                text.AppendLine(Lang.Get("multiclassreborn:message-traits-none"));
             }
             else
             {
-                text.AppendLine($"Traits ({classDef.Traits.Length}):");
+                text.AppendLine(Lang.Get("multiclassreborn:message-traits-count", classDef.Traits.Length));
 
                 foreach (string traitCode in classDef.Traits)
                 {
@@ -363,7 +692,7 @@ namespace multiclassreborn
             Tell(player, text.ToString(), EnumChatType.Notification);
         }
 
-        private void GiveRuneItem(IServerPlayer admin, string playerName, string itemCode, string displayName)
+        private void GiveAptitudeGlyphItem(IServerPlayer admin, string playerName, string itemCode, string displayNameKey)
         {
             IServerPlayer target = sapi.World.AllOnlinePlayers
                 .OfType<IServerPlayer>()
@@ -371,26 +700,26 @@ namespace multiclassreborn
 
             if (target == null)
             {
-                Tell(admin, $"Player '{playerName}' not found or not online.", EnumChatType.Notification);
+                Tell(admin, Lang.Get("multiclassreborn:message-player-not-found", playerName), EnumChatType.Notification);
                 return;
             }
 
             Item item = sapi.World.GetItem(new AssetLocation(itemCode));
             if (item == null)
             {
-                Tell(admin, $"Could not resolve item '{itemCode}'.", EnumChatType.Notification);
+                Tell(admin, Lang.Get("multiclassreborn:message-could-not-resolve-item", itemCode), EnumChatType.Notification);
                 return;
             }
 
             ItemStack stack = new ItemStack(item, 1);
             if (!target.InventoryManager.TryGiveItemstack(stack))
             {
-                Tell(admin, $"Could not give {displayName} to {target.PlayerName} (inventory full?).", EnumChatType.Notification);
+                Tell(admin, Lang.Get("multiclassreborn:message-could-not-give-item", Lang.Get(displayNameKey), target.PlayerName), EnumChatType.Notification);
                 return;
             }
 
-            Tell(admin, $"Gave {displayName} to {target.PlayerName}.", EnumChatType.Notification);
-            Tell(target, $"You received a {displayName}.", EnumChatType.Notification);
+            Tell(admin, Lang.Get("multiclassreborn:message-gave-item", Lang.Get(displayNameKey), target.PlayerName), EnumChatType.Notification);
+            Tell(target, Lang.Get("multiclassreborn:message-received-item", Lang.Get(displayNameKey)), EnumChatType.Notification);
         }
 
         internal void ReapplyClassEffects(IServerPlayer player)
@@ -431,9 +760,7 @@ namespace multiclassreborn
         private void ApplyScaledStats(IServerPlayer player, HashSet<string> traitCodes)
         {
             List<TraitStatCandidate> candidates = GatherTraitStatCandidates(traitCodes);
-            IEnumerable<TraitStatCandidate> appliedCandidates = Config.SuppressDuplicateExtraStats
-                ? ChooseNonDuplicateTraitStats(candidates)
-                : candidates;
+            IEnumerable<TraitStatCandidate> appliedCandidates = ChooseConfiguredTraitStats(candidates);
 
             foreach (TraitStatCandidate candidate in appliedCandidates)
             {
@@ -464,25 +791,44 @@ namespace multiclassreborn
         }
 
         /// <summary>
-        /// Drops duplicate positive stat bonuses and keeps the harshest negative.
+        /// Applies configured duplicate handling separately by trait polarity.
         /// </summary>
-        private IEnumerable<TraitStatCandidate> ChooseNonDuplicateTraitStats(List<TraitStatCandidate> candidates)
+        private IEnumerable<TraitStatCandidate> ChooseConfiguredTraitStats(List<TraitStatCandidate> candidates)
         {
-            foreach (IGrouping<string, TraitStatCandidate> group in candidates.GroupBy(candidate => candidate.StatCode))
+            foreach (var group in candidates.GroupBy(candidate => new { candidate.StatCode, candidate.TraitType }))
             {
-                if (group.Count() == 1)
+                if (ShouldKeepOnlyStrongest(group.Key.TraitType))
                 {
-                    yield return group.First();
+                    yield return ChooseStrongestTraitStat(group);
                     continue;
                 }
 
-                TraitStatCandidate worstNegative = group
-                    .Where(candidate => candidate.TraitType == EnumTraitType.Negative)
-                    .OrderByDescending(candidate => Math.Abs(candidate.RawValue))
-                    .FirstOrDefault();
-
-                if (worstNegative != null) yield return worstNegative;
+                foreach (TraitStatCandidate candidate in group)
+                {
+                    yield return candidate;
+                }
             }
+        }
+
+        /// <summary>
+        /// Tests whether this trait polarity should suppress weaker duplicates.
+        /// </summary>
+        private bool ShouldKeepOnlyStrongest(EnumTraitType traitType)
+        {
+            if (traitType == EnumTraitType.Positive) return Config.OnlyApplyBestPositiveTraitBonus;
+            if (traitType == EnumTraitType.Negative) return Config.OnlyApplyWorstNegativeTraitPenalty;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Chooses the largest absolute stat change from one duplicate group.
+        /// </summary>
+        private TraitStatCandidate ChooseStrongestTraitStat(IEnumerable<TraitStatCandidate> candidates)
+        {
+            return candidates
+                .OrderByDescending(candidate => Math.Abs(candidate.RawValue))
+                .First();
         }
 
         private void ClearRebornStats(IServerPlayer player)

@@ -5,7 +5,7 @@
     "op": "add",
     "path": "/selling/list/-",
     "value": {
-      "code": "multiclass:classrune",
+      "code": "multiclassreborn:aptitude-glyphstone",
       "type": "item",
       "weight": 0.1,
       "stacksize": 1,
@@ -25,7 +25,7 @@
     "op": "add",
     "path": "/selling/list/-",
     "value": {
-      "code": "multiclass:unlearnrune",
+      "code": "multiclassreborn:retraining-glyphstone",
       "type": "item",
       "weight": 0.1,
       "stacksize": 1,

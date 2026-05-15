@@ -37,7 +37,7 @@ namespace multiclassreborn
             CairoFont font = CreateTraitsFont();
             double textWidth = TraitTabContentWidth - ScrollbarWidth - ScrollbarPadding;
             string traitText = BuildTraitTabText(font, textWidth);
-            double contentHeight = ClassTraitTextUtil.MeasureExplicitTextHeight(traitText, font, TraitTabVisibleHeight);
+            double contentHeight = ClassTraitTextUtil.MeasureExplicitTextHeight(traitText, font, 1);
             traitsComposer = compo;
 
             ElementBounds clipBounds = ElementBounds.Fixed(0, 25, TraitTabContentWidth, TraitTabVisibleHeight);
@@ -93,7 +93,7 @@ namespace multiclassreborn
             StringBuilder text = new StringBuilder();
             if (classSystem.Ledger.ClassByCode.TryGetValue(mainClassCode, out CharacterClass mainClass))
             {
-                text.AppendLine("<strong>Base Class:</strong>");
+                text.AppendLine(Lang.Get("multiclassreborn:traits-tab-base-class"));
                 text.AppendLine($"<strong>{ClassTraitTextUtil.GetClassName(mainClass.Code)}</strong>");
                 AppendTraitDetails(text, mainClass, classSystem, font, maxWidth, false);
                 text.AppendLine();
@@ -106,7 +106,7 @@ namespace multiclassreborn
 
             if (extraClasses.Count == 0) return text.ToString();
 
-            text.AppendLine("<strong>Extra classes:</strong>");
+            text.AppendLine(Lang.Get("multiclassreborn:traits-tab-extra-classes"));
             foreach (string classCode in extraClasses)
             {
                 if (!classSystem.Ledger.ClassByCode.TryGetValue(classCode, out CharacterClass classDef)) continue;
@@ -125,7 +125,7 @@ namespace multiclassreborn
         {
             if (classDef.Traits == null || classDef.Traits.Length == 0)
             {
-                text.AppendLine("  <i>This class has no listed traits.</i>");
+                text.AppendLine(Lang.Get("multiclassreborn:traits-tab-no-listed-traits"));
                 return;
             }
 
@@ -143,8 +143,9 @@ namespace multiclassreborn
                     }
                 }
 
-                string description = Lang.GetIfExists("traitdesc-" + traitCode);
-                if (!string.IsNullOrWhiteSpace(description))
+                string descriptionKey = "traitdesc-" + traitCode;
+                string description = Lang.GetIfExists(descriptionKey);
+                if (ClassTraitTextUtil.HasVisibleLocalizedText(description, descriptionKey))
                 {
                     ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth);
                 }

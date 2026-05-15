@@ -23,6 +23,8 @@ namespace multiclassreborn
         private readonly MulticlassRebornModSystem classSystem;
 
         private string selectedClassCode;
+        private string pendingForgetClassCode;
+        private bool openedForRetraining;
         private int pageIndex;
 
         public override string ToggleKeyCombinationCode => "multiclassgui";
@@ -35,8 +37,18 @@ namespace multiclassreborn
 
         public override bool TryOpen()
         {
+            openedForRetraining = false;
+            pendingForgetClassCode = null;
             ComposeDialog();
             return base.TryOpen();
+        }
+
+        public bool OpenForRetraining()
+        {
+            openedForRetraining = true;
+            pendingForgetClassCode = null;
+            ComposeDialog();
+            return IsOpened() || base.TryOpen();
         }
 
         /// <summary>
@@ -83,14 +95,9 @@ namespace multiclassreborn
 
         private string BuildTitle(RebornPlayerClassState state)
         {
-            string title = $"Choose Extra Classes - Slots: {state.UsedSlots}/{state.AvailableSlots}";
-
-            if (state.RequiresRunes)
-            {
-                title += $" | Forget Credits: {state.RemovalCredits}";
-            }
-
-            return title;
+            return openedForRetraining
+                ? Lang.Get("multiclassreborn:dialog-title-retrain", state.UsedSlots, state.AvailableSlots)
+                : Lang.Get("multiclassreborn:dialog-title-choose", state.UsedSlots, state.AvailableSlots);
         }
 
         private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds)
@@ -100,8 +107,8 @@ namespace multiclassreborn
             pageIndex = Math.Min(pageIndex, pageCount - 1);
 
             SingleComposer.AddInset(listBounds, 2);
-            SingleComposer.AddSmallButton("Previous", OnPreviousPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 30), EnumButtonStyle.Small, "previousPage");
-            SingleComposer.AddSmallButton("Next", OnNextPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight + 530, 230, 30), EnumButtonStyle.Small, "nextPage");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-previous"), OnPreviousPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 30), EnumButtonStyle.Small, "previousPage");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-next"), OnNextPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight + 530, 230, 30), EnumButtonStyle.Small, "nextPage");
 
             double y = GuiStyle.TitleBarHeight + 35;
             foreach (CharacterClass classDef in classList.Skip(pageIndex * rowsPerPage).Take(rowsPerPage))
@@ -129,31 +136,83 @@ namespace multiclassreborn
 
             bool isMainClass = classDef.Code.Equals(mainClass, StringComparison.OrdinalIgnoreCase);
             bool isLearned = extraClasses.Contains(classDef.Code);
+            bool isCommoner = mainClass.Equals("commoner", StringComparison.OrdinalIgnoreCase);
             bool canLearn = !isMainClass && !isLearned && state.UsedSlots < state.AvailableSlots;
-            bool canForget = !isMainClass && isLearned && (!state.RequiresRunes || state.RemovalCredits > 0);
+            bool canForgetExtra = !isMainClass && isLearned;
+            bool canForgetMain = isMainClass && state.AllowsBaseClassForgetting && !isCommoner;
+            bool canChooseBase = isCommoner && state.AllowsCommonerBaseClassChoice && !isMainClass && !classDef.Code.Equals("commoner", StringComparison.OrdinalIgnoreCase);
 
             AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, state, detailBounds), detailBounds);
 
+            if (pendingForgetClassCode == classDef.Code)
+            {
+                AddForgetConfirmation(actionBounds, classDef, isMainClass, state);
+                return;
+            }
+
+            if (openedForRetraining)
+            {
+                if (canForgetExtra || canForgetMain)
+                {
+                    SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => ConfirmForget(classDef.Code), actionBounds, EnumButtonStyle.Normal, "forgetClass");
+                    return;
+                }
+
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cannot-forget"), () => false, actionBounds, EnumButtonStyle.Small, "blockedForgetClass");
+                return;
+            }
+
+            if (canChooseBase)
+            {
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-set-base-class"), () => SendClassCommand("setbase", classDef.Code), actionBounds, EnumButtonStyle.Normal, "setBaseClass");
+                return;
+            }
+
             if (canLearn)
             {
-                SingleComposer.AddSmallButton("Learn", () => SendClassCommand("add", classDef.Code), actionBounds, EnumButtonStyle.Normal, "learnClass");
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-learn"), () => SendClassCommand("add", classDef.Code), actionBounds, EnumButtonStyle.Normal, "learnClass");
                 return;
             }
 
             if (isLearned)
             {
-                // Free-forget servers must still show the active Forget button.
-                // Only rune-required servers need a positive forget credit.
-                string label = canForget ? "Forget" : "Need Forget Rune";
-                ActionConsumable action = canForget ? () => SendClassCommand("remove", classDef.Code) : () => false;
-                SingleComposer.AddSmallButton(label, action, actionBounds, canForget ? EnumButtonStyle.Normal : EnumButtonStyle.Small, "forgetClass");
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => ConfirmForget(classDef.Code), actionBounds, EnumButtonStyle.Normal, "forgetClass");
                 return;
             }
 
             if (!isMainClass)
             {
-                SingleComposer.AddSmallButton("Need Class Slot", () => false, actionBounds, EnumButtonStyle.Small, "blockedClass");
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-need-class-slot"), () => false, actionBounds, EnumButtonStyle.Small, "blockedClass");
             }
+        }
+
+        private void AddForgetConfirmation(ElementBounds actionBounds, CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
+        {
+            ElementBounds textBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY - 56, actionBounds.fixedWidth, 50);
+            ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, 235, 30);
+            ElementBounds forgetBounds = ElementBounds.Fixed(actionBounds.fixedX + 255, actionBounds.fixedY, 235, 30);
+
+            SingleComposer.AddRichtext(BuildForgetConfirmationText(classDef, isMainClass, state), CairoFont.WhiteSmallText(), textBounds, "forgetConfirmationText");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cancel"), CancelForget, cancelBounds, EnumButtonStyle.Small, "cancelForget");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => SendClassCommand("confirmforget", classDef.Code), forgetBounds, EnumButtonStyle.Normal, "confirmForget");
+        }
+
+        private string BuildForgetConfirmationText(CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
+        {
+            string className = ClassTraitTextUtil.GetClassName(classDef.Code);
+
+            if (isMainClass)
+            {
+                string costText = state.RequiresGlyphs ? Lang.Get("multiclassreborn:dialog-forget-cost-retraining") + " " : "";
+                string recoveryText = state.AllowsCommonerBaseClassChoice
+                    ? Lang.Get("multiclassreborn:dialog-forget-base-recovery-choice")
+                    : Lang.Get("multiclassreborn:dialog-forget-base-recovery-earn");
+                return Lang.Get("multiclassreborn:dialog-confirm-forget-base", className, costText, recoveryText);
+            }
+
+            return state.RequiresGlyphs
+                ? Lang.Get("multiclassreborn:dialog-confirm-forget-extra-cost", className)
+                : Lang.Get("multiclassreborn:dialog-confirm-forget-extra", className);
         }
 
         /// <summary>
@@ -198,18 +257,34 @@ namespace multiclassreborn
             text.AppendLine($"<strong><font size=\"18\">{ClassTraitTextUtil.GetClassName(classDef.Code)}</font></strong>");
             text.AppendLine();
 
-            if (isMainClass) text.AppendLine("<i>This is your main class.</i>");
-            if (isLearned) text.AppendLine("<i>This extra class is learned.</i>");
-            if (!isMainClass && !isLearned && state.UsedSlots >= state.AvailableSlots) text.AppendLine("<i>You need an open class slot.</i>");
-            text.AppendLine();
+            bool hasStatusLine = false;
+            if (isMainClass)
+            {
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-status-main-class"));
+                hasStatusLine = true;
+            }
+
+            if (isLearned)
+            {
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-status-extra-learned"));
+                hasStatusLine = true;
+            }
+
+            if (!isMainClass && !isLearned && state.UsedSlots >= state.AvailableSlots)
+            {
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-status-need-slot"));
+                hasStatusLine = true;
+            }
+
+            if (hasStatusLine) text.AppendLine();
 
             if (classDef.Traits == null || classDef.Traits.Length == 0)
             {
-                text.AppendLine("<i>This class has no listed traits.</i>");
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-no-listed-traits"));
                 return text.ToString();
             }
 
-            text.AppendLine("<strong>Traits:</strong>");
+            text.AppendLine(Lang.Get("multiclassreborn:dialog-traits-heading"));
 
             foreach (string traitCode in classDef.Traits)
             {
@@ -225,8 +300,9 @@ namespace multiclassreborn
                     }
                 }
 
-                string description = Lang.GetIfExists("traitdesc-" + traitCode);
-                if (!string.IsNullOrWhiteSpace(description))
+                string descriptionKey = "traitdesc-" + traitCode;
+                string description = Lang.GetIfExists(descriptionKey);
+                if (ClassTraitTextUtil.HasVisibleLocalizedText(description, descriptionKey))
                 {
                     ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth);
                 }
@@ -238,6 +314,21 @@ namespace multiclassreborn
         private bool SelectClass(string classCode)
         {
             selectedClassCode = classCode;
+            pendingForgetClassCode = null;
+            ComposeDialog();
+            return true;
+        }
+
+        private bool ConfirmForget(string classCode)
+        {
+            pendingForgetClassCode = classCode;
+            ComposeDialog();
+            return true;
+        }
+
+        private bool CancelForget()
+        {
+            pendingForgetClassCode = null;
             ComposeDialog();
             return true;
         }
@@ -259,6 +350,7 @@ namespace multiclassreborn
         private bool SendClassCommand(string action, string classCode)
         {
             clientApi.SendChatMessage($"/multiclass {action} {classCode}");
+            pendingForgetClassCode = null;
             clientApi.Event.RegisterCallback(_ => ComposeDialog(), 500);
             return true;
         }

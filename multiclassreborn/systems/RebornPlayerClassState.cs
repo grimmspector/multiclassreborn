@@ -14,7 +14,9 @@ namespace multiclassreborn.systems
         private const string AvailableSlotsKey = "availableSlots";
         private const string UsedSlotsKey = "usedSlots";
         private const string RemovalCreditsKey = "removalSlots";
-        private const string RequireRunesKey = "requireTokens";
+        private const string RequireGlyphsKey = "requireTokens";
+        private const string AllowBaseForgetKey = "allowBaseForget";
+        private const string AllowCommonerBaseChoiceKey = "allowCommonerBaseChoice";
         private const string SlotsInitializedKey = "slotsInitialized";
 
         private readonly EntityPlayer entity;
@@ -70,13 +72,33 @@ namespace multiclassreborn.systems
             }
         }
 
-        public bool RequiresRunes
+        public bool RequiresGlyphs
         {
-            get => Tree.GetBool(RequireRunesKey, false);
+            get => Tree.GetBool(RequireGlyphsKey, false);
             set
             {
-                Tree.SetBool(RequireRunesKey, value);
-                MarkTreePath(RequireRunesKey);
+                Tree.SetBool(RequireGlyphsKey, value);
+                MarkTreePath(RequireGlyphsKey);
+            }
+        }
+
+        public bool AllowsBaseClassForgetting
+        {
+            get => Tree.GetBool(AllowBaseForgetKey, false);
+            set
+            {
+                Tree.SetBool(AllowBaseForgetKey, value);
+                MarkTreePath(AllowBaseForgetKey);
+            }
+        }
+
+        public bool AllowsCommonerBaseClassChoice
+        {
+            get => Tree.GetBool(AllowCommonerBaseChoiceKey, false);
+            set
+            {
+                Tree.SetBool(AllowCommonerBaseChoiceKey, value);
+                MarkTreePath(AllowCommonerBaseChoiceKey);
             }
         }
 

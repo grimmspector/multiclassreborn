@@ -1,0 +1,32 @@
+{
+  // Allows extra-class stat bonuses to be applied.
+  "AllowStats": true,
+
+  // Allows extra-class recipe traits to count for recipes.
+  "AllowRecipes": true,
+
+  // Enables craftable Aptitude and Retraining Glyphstones.
+  // This is true for testing; set it false for a release unless recipes are desired.
+  "EnableGlyphstoneRecipes": true,
+
+  // Multiplies stat changes from extra classes before applying them.
+  "SecondaryScale": 0.8,
+
+  // Keeps only the strongest positive trait bonus per affected stat.
+  "OnlyApplyBestPositiveTraitBonus": false,
+
+  // Keeps only the harshest negative trait penalty per affected stat.
+  "OnlyApplyWorstNegativeTraitPenalty": false,
+
+  // Allows players to forget their main class and return to Commoner.
+  "AllowForgettingBaseClass": false,
+
+  // Allows Commoners to choose a new main class without a glyphstone.
+  "AllowCommonersChooseBaseClass": false,
+
+  // Maximum number of extra class slots a player can have.
+  "MaxExtraClasses": 3,
+
+  // Requires glyphstones for adding slots and forgetting classes.
+  "RequireTokens": false
+}
