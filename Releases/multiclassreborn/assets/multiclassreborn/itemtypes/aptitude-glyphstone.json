@@ -1,6 +1,6 @@
 {
-  "code": "retraining-glyphstone",
-  "class": "RetrainingGlyphstone",
+  "code": "aptitude-glyphstone",
+  "class": "AptitudeGlyphstone",
   "behaviors": [
     {
       "name": "GroundStorable",
@@ -12,20 +12,19 @@
       }
     }
   ],
-  "maxstacksize": 4,
-  "materialDensity": 1600,
+  "maxstacksize": 8,
+  "materialDensity": 1450,
   "attributes": {
     "groundStorageTransform": {
-      "translation": { "x": 0, "y": -0.05, "z": 0 },
-      "rotation": { "x": 90, "y": 0, "z": 0 },
-      "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
-      "scale": 0.34
+		"translation": { "x": 0, "y": -0.46, "z": 0 },
+		"rotation": { "x": 90, "y": 0, "z": 0 },
+		"scale": 0.34
     },
     "handbook": {
       "extraSections": [
         {
-          "title": "multiclassreborn:handbook-retraining-glyphstone-title",
-          "text": "multiclassreborn:handbook-retraining-glyphstone-text"
+          "title": "multiclassreborn:handbook-aptitude-glyphstone-title",
+          "text": "multiclassreborn:handbook-aptitude-glyphstone-text"
         }
       ]
     }
@@ -39,9 +38,9 @@
     "base": "item/glyphstone"
   },
   "textures": {
-    "stone": { "base": "item/glyphstone/forget-stone" },
-    "face": { "base": "item/glyphstone/forget-face" },
-    "glyph": { "base": "item/glyphstone/forget-glyph" }
+    "stone": { "base": "item/glyphstone/aptitude-stone" },
+    "face": { "base": "item/glyphstone/aptitude-face" },
+    "glyph": { "base": "item/glyphstone/aptitude-glyph" }
   },
   "renderAlphaTest": 0.01,
   "guiTransform": {
@@ -50,17 +49,15 @@
     "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
     "scale": 1.1
   },
-  "groundTransform": {
-    "translation": { "x": 0, "y": -0.02, "z": 0 },
-    "rotation": { "x": 90, "y": 0, "z": 0 },
-    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
-    "scale": 1.05
+	"groundStorageTransform": {
+		"translation": { "x": 0, "y": -0.46, "z": 0 },
+		"rotation": { "x": 90, "y": 0, "z": 0 },
+		"scale": 0.34
   },
-  "tpHandTransform": {
-    "translation": { "x": -0.48, "y": -0.34, "z": -0.38 },
-    "rotation": { "x": 0, "y": -89, "z": -83 },
-    "origin": { "x": 0.5, "y": 0.5, "z": 0.5 },
-    "scale": 0.24
+	"tpHandTransform": {
+		"translation": { "x": -2.6, "y": -1.85, "z": -2 },
+		"rotation": { "x": 0, "y": -89, "z" : -83 },
+		"scale": 0.24
   },
   "fpHandTransform": {
     "translation": { "x": 0.34, "y": -0.2, "z": 0.18 },
@@ -73,11 +70,11 @@
       "price": {
         "type": "item",
         "code": "gear-temporal",
-        "quantity": 8
+        "quantity": 6
       },
       "stock": {
         "tier1": 1,
-        "tier2": 2
+        "tier2": 3
       }
     }
   }

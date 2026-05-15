@@ -61,7 +61,8 @@ namespace multiclassreborn
             Config = RebornClassConfig.Load(api);
             Ledger.Reload(api);
 
-            sapi.Event.PlayerJoin += PreparePlayerState;
+            // Sync after character setup so first-join class selection cannot overwrite it.
+            sapi.Event.PlayerNowPlaying += PreparePlayerState;
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
 
@@ -797,7 +798,7 @@ namespace multiclassreborn
             foreach (TraitStatCandidate candidate in appliedCandidates)
             {
                 float scaledValue = (float)candidate.RawValue * Config.ExtraClassScale;
-                player.Entity.Stats.Set(candidate.StatCode, BuildStatSourceCode(candidate.TraitCode), scaledValue, false);
+                player.Entity.Stats.Set(candidate.StatCode, BuildCanonicalStatSourceCode(candidate.TraitCode), scaledValue, false);
             }
         }
 
@@ -871,7 +872,10 @@ namespace multiclassreborn
 
                 foreach (string statCode in trait.Attributes.Keys)
                 {
-                    player.Entity.Stats.Remove(statCode, BuildStatSourceCode(trait.Code));
+                    foreach (string sourceCode in BuildStatSourceCodes(trait.Code))
+                    {
+                        player.Entity.Stats.Remove(statCode, sourceCode);
+                    }
                 }
             }
 
@@ -918,9 +922,21 @@ namespace multiclassreborn
             return entity.WatchedAttributes.GetString("characterClass", "none");
         }
 
-        private string BuildStatSourceCode(string traitCode)
+        /// <summary>
+        /// Uses the original mod stat source so migrated worlds overwrite old values.
+        /// </summary>
+        private string BuildCanonicalStatSourceCode(string traitCode)
         {
-            return $"multiclassreborn_{traitCode}";
+            return $"multiclass_{traitCode}";
+        }
+
+        /// <summary>
+        /// Includes the early Reborn source so 0.1.0 test worlds are cleaned up.
+        /// </summary>
+        private IEnumerable<string> BuildStatSourceCodes(string traitCode)
+        {
+            yield return BuildCanonicalStatSourceCode(traitCode);
+            yield return $"multiclassreborn_{traitCode}";
         }
 
         /// <summary>

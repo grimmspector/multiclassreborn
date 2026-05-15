@@ -10,6 +10,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
+using System.Linq;
 using Vintagestory.API.Common;
 
 namespace CakeBuild
@@ -29,7 +30,7 @@ namespace CakeBuild
         public const string ProjectName = "multiclassreborn";
         public string BuildConfiguration { get; }
         public string Version { get; }
-        public string Name { get; }
+        public string ReleaseName { get; }
         public bool SkipJsonValidation { get; }
 
         public BuildContext(ICakeContext context)
@@ -39,7 +40,7 @@ namespace CakeBuild
             SkipJsonValidation = context.Argument("skipJsonValidation", false);
             var modInfo = context.DeserializeJsonFromFile<ModInfo>($"../{ProjectName}/modinfo.json");
             Version = modInfo.Version;
-            Name = modInfo.ModID;
+            ReleaseName = ProjectName;
         }
     }
 
@@ -97,22 +98,34 @@ namespace CakeBuild
         {
             context.EnsureDirectoryExists("../Releases");
             context.CleanDirectory("../Releases");
-            context.EnsureDirectoryExists($"../Releases/{context.Name}");
-            context.CopyFiles($"../{BuildContext.ProjectName}/bin/{context.BuildConfiguration}/Mods/mod/publish/*", $"../Releases/{context.Name}");
+            context.EnsureDirectoryExists($"../Releases/{context.ReleaseName}");
+            context.CopyFiles($"../{BuildContext.ProjectName}/bin/{context.BuildConfiguration}/Mods/mod/publish/*", $"../Releases/{context.ReleaseName}");
             if (context.DirectoryExists($"../{BuildContext.ProjectName}/assets"))
             {
-                context.CopyDirectory($"../{BuildContext.ProjectName}/assets", $"../Releases/{context.Name}/assets");
+                context.CopyDirectory($"../{BuildContext.ProjectName}/assets", $"../Releases/{context.ReleaseName}/assets");
             }
             if (context.DirectoryExists($"../{BuildContext.ProjectName}/config"))
             {
-                context.CopyDirectory($"../{BuildContext.ProjectName}/config", $"../Releases/{context.Name}/config");
+                context.CopyDirectory($"../{BuildContext.ProjectName}/config", $"../Releases/{context.ReleaseName}/config");
             }
-            context.CopyFile($"../{BuildContext.ProjectName}/modinfo.json", $"../Releases/{context.Name}/modinfo.json");
+            context.CopyFile($"../{BuildContext.ProjectName}/modinfo.json", $"../Releases/{context.ReleaseName}/modinfo.json");
             if (context.FileExists($"../{BuildContext.ProjectName}/modicon.png"))
             {
-                context.CopyFile($"../{BuildContext.ProjectName}/modicon.png", $"../Releases/{context.Name}/modicon.png");
+                context.CopyFile($"../{BuildContext.ProjectName}/modicon.png", $"../Releases/{context.ReleaseName}/modicon.png");
             }
-            context.Zip($"../Releases/{context.Name}", $"../Releases/{context.Name}_{context.Version}.zip");
+            RemoveEmptyDirectories($"../Releases/{context.ReleaseName}");
+            context.Zip($"../Releases/{context.ReleaseName}", $"../Releases/{context.ReleaseName}_{context.Version}.zip");
+        }
+
+        private static void RemoveEmptyDirectories(string rootDirectory)
+        {
+            foreach (var directory in Directory.GetDirectories(rootDirectory, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
+            {
+                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                {
+                    Directory.Delete(directory);
+                }
+            }
         }
     }
 

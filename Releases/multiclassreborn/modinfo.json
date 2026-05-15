@@ -4,8 +4,11 @@
   "modid": "multiclass",
   "name": "Multiclass Reborn",
   "authors": [
-    "grimm"
+    "GrimmSpector, Ultrcombraun"
   ],
   "description": "A clean-room replacement for multiclass character builds.",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "dependencies": {
+    "game": "1.22.0"
+  }
 }
