@@ -6,8 +6,7 @@
   "AllowRecipes": true,
 
   // Enables craftable Aptitude and Retraining Glyphstones.
-  // This is true for testing; set it false for a release unless recipes are desired.
-  "EnableGlyphstoneRecipes": true,
+  "EnableGlyphstoneRecipes": false,
 
   // Multiplies stat changes from extra classes before applying them.
   "SecondaryScale": 0.8,

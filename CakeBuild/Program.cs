@@ -113,8 +113,22 @@ namespace CakeBuild
             {
                 context.CopyFile($"../{BuildContext.ProjectName}/modicon.png", $"../Releases/{context.ReleaseName}/modicon.png");
             }
+            RemoveExcludedReleaseFiles($"../Releases/{context.ReleaseName}");
             RemoveEmptyDirectories($"../Releases/{context.ReleaseName}");
             context.Zip($"../Releases/{context.ReleaseName}", $"../Releases/{context.ReleaseName}_{context.Version}.zip");
+        }
+
+        private static void RemoveExcludedReleaseFiles(string rootDirectory)
+        {
+            // Release packages should never include local debug or dependency manifest files.
+            foreach (var file in Directory.GetFiles(rootDirectory, "*.pdb", SearchOption.AllDirectories))
+            {
+                File.Delete(file);
+            }
+            foreach (var file in Directory.GetFiles(rootDirectory, "*.deps.json", SearchOption.AllDirectories))
+            {
+                File.Delete(file);
+            }
         }
 
         private static void RemoveEmptyDirectories(string rootDirectory)

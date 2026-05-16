@@ -17,10 +17,9 @@ namespace multiclassreborn.systems
         [JsonProperty("AllowRecipes")]
         public bool AllowRecipeTraits = true;
 
-        // Enables craftable glyphstone recipes. Keep false for release builds
-        // unless craftable progression is desired on the server.
+        // Enables craftable glyphstone recipes when desired on the server.
         [JsonProperty("EnableGlyphstoneRecipes")]
-        public bool EnableGlyphstoneRecipes = true;
+        public bool EnableGlyphstoneRecipes = false;
 
         // Multiplies stat changes from extra classes before applying them.
         [JsonProperty("SecondaryScale")]
@@ -50,7 +49,8 @@ namespace multiclassreborn.systems
         // Aptitude Glyphstones granted on first join when RequireTokens is true.
         public int StartingAptitudeTokens;
 
-        private const string ConfigFileName = "multiclass.json";
+        private const string ConfigFileName = "multiclassreborn.json";
+        private const string LegacyConfigFileName = "multiclass.json";
 
         /// <summary>
         /// Loads the persisted config without stripping its inline comments.
@@ -58,13 +58,16 @@ namespace multiclassreborn.systems
         public static RebornClassConfig Load(ICoreServerAPI sapi)
         {
             RebornClassConfig config = null;
-            string configPath = Path.Combine(sapi.GetOrCreateDataPath("ModConfig"), ConfigFileName);
+            string configDirectory = sapi.GetOrCreateDataPath("ModConfig");
+            string configPath = Path.Combine(configDirectory, ConfigFileName);
+            string legacyConfigPath = Path.Combine(configDirectory, LegacyConfigFileName);
 
             try
             {
                 if (!File.Exists(configPath))
                 {
-                    WriteCommentedConfig(configPath, new RebornClassConfig());
+                    RebornClassConfig initialConfig = LoadLegacyConfig(legacyConfigPath) ?? new RebornClassConfig();
+                    WriteCommentedConfig(configPath, initialConfig);
                 }
 
                 string configText = File.ReadAllText(configPath);
@@ -82,6 +85,20 @@ namespace multiclassreborn.systems
 
             config ??= new RebornClassConfig();
             config.ClampUnsafeValues();
+
+            return config;
+        }
+
+        /// <summary>
+        /// Reads the original multiclass config as the first Reborn config seed.
+        /// </summary>
+        private static RebornClassConfig LoadLegacyConfig(string legacyConfigPath)
+        {
+            if (!File.Exists(legacyConfigPath)) return null;
+
+            string configText = File.ReadAllText(legacyConfigPath);
+            RebornClassConfig config = JsonConvert.DeserializeObject<RebornClassConfig>(configText);
+            config?.ClampUnsafeValues();
 
             return config;
         }
@@ -126,7 +143,6 @@ namespace multiclassreborn.systems
   ""AllowRecipes"": {JsonBool(config.AllowRecipeTraits)},
 
   // Enables craftable Aptitude and Retraining Glyphstones.
-  // This is true for testing; set it false for a release unless recipes are desired.
   ""EnableGlyphstoneRecipes"": {JsonBool(config.EnableGlyphstoneRecipes)},
 
   // Multiplies stat changes from extra classes before applying them.

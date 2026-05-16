@@ -210,7 +210,7 @@ namespace multiclassreborn
         }
 
         /// <summary>
-        /// Registers optional glyphstone crafting recipes for testing servers.
+        /// Registers optional glyphstone crafting recipes when enabled.
         /// </summary>
         private void RegisterGlyphstoneRecipes()
         {

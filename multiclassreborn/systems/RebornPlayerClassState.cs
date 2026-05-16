@@ -9,7 +9,8 @@ namespace multiclassreborn.systems
 {
     internal class RebornPlayerClassState
     {
-        private const string StateTreeCode = "multiclass";
+        private const string StateTreeCode = "multiclassreborn";
+        private const string LegacyStateTreeCode = "multiclass";
         private const string ExtraClassesKey = "extraClasses";
         private const string AvailableSlotsKey = "availableSlots";
         private const string UsedSlotsKey = "usedSlots";
@@ -27,6 +28,7 @@ namespace multiclassreborn.systems
         public RebornPlayerClassState(EntityPlayer entity)
         {
             this.entity = entity;
+            MigrateLegacyState();
         }
 
         public List<string> ExtraClasses
@@ -148,7 +150,75 @@ namespace multiclassreborn.systems
         private ITreeAttribute Tree => entity.WatchedAttributes.GetOrAddTreeAttribute(StateTreeCode);
 
         /// <summary>
-        /// Marks one nested multiclass state path dirty so the client receives
+        /// Copies original multiclass player data into the Reborn domain once.
+        /// </summary>
+        private void MigrateLegacyState()
+        {
+            ITreeAttribute legacyTree = entity.WatchedAttributes.GetTreeAttribute(LegacyStateTreeCode);
+            if (legacyTree == null) return;
+
+            CopyLegacyStringArray(legacyTree, ExtraClassesKey);
+            CopyLegacyInt(legacyTree, AvailableSlotsKey);
+            CopyLegacyInt(legacyTree, UsedSlotsKey);
+            CopyLegacyInt(legacyTree, RemovalCreditsKey);
+            CopyLegacyBool(legacyTree, RequireGlyphsKey);
+            CopyLegacyBool(legacyTree, AllowBaseForgetKey);
+            CopyLegacyBool(legacyTree, AllowCommonerBaseChoiceKey);
+            CopyLegacyFloat(legacyTree, ExtraClassScaleKey);
+            CopyLegacyBool(legacyTree, OnlyBestPositiveKey);
+            CopyLegacyBool(legacyTree, OnlyWorstNegativeKey);
+            CopyLegacyBool(legacyTree, SlotsInitializedKey);
+        }
+
+        /// <summary>
+        /// Imports legacy string arrays without overwriting current Reborn data.
+        /// </summary>
+        private void CopyLegacyStringArray(ITreeAttribute legacyTree, string key)
+        {
+            if (Tree[key] != null || legacyTree[key] == null) return;
+
+            StringArrayAttribute strings = legacyTree[key] as StringArrayAttribute;
+            if (strings?.value == null) return;
+
+            Tree[key] = new StringArrayAttribute(strings.value.ToArray());
+            MarkTreePath(key);
+        }
+
+        /// <summary>
+        /// Imports a legacy integer only when the current key is absent.
+        /// </summary>
+        private void CopyLegacyInt(ITreeAttribute legacyTree, string key)
+        {
+            if (Tree[key] != null || legacyTree[key] == null) return;
+
+            Tree.SetInt(key, legacyTree.GetInt(key, 0));
+            MarkTreePath(key);
+        }
+
+        /// <summary>
+        /// Imports a legacy boolean only when the current key is absent.
+        /// </summary>
+        private void CopyLegacyBool(ITreeAttribute legacyTree, string key)
+        {
+            if (Tree[key] != null || legacyTree[key] == null) return;
+
+            Tree.SetBool(key, legacyTree.GetBool(key, false));
+            MarkTreePath(key);
+        }
+
+        /// <summary>
+        /// Imports a legacy float only when the current key is absent.
+        /// </summary>
+        private void CopyLegacyFloat(ITreeAttribute legacyTree, string key)
+        {
+            if (Tree[key] != null || legacyTree[key] == null) return;
+
+            Tree.SetFloat(key, legacyTree.GetFloat(key, 0f));
+            MarkTreePath(key);
+        }
+
+        /// <summary>
+        /// Marks one nested Reborn state path dirty so the client receives
         /// fresh slot and class data without waiting for a full entity refresh.
         /// </summary>
         private void MarkTreePath(string key)

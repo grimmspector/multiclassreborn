@@ -4,6 +4,8 @@ obj/
 *.user
 *.suo
 *.zip
+*.pdb
+*.deps.json
 .dotnetcli/
 research/
 docs/
