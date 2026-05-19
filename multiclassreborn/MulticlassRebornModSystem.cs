@@ -18,6 +18,7 @@ using Vintagestory.GameContent;
 
 namespace multiclassreborn
 {
+    // Main entry point for class slots, class commands, glyphstones, and stat effects.
     public class MulticlassRebornModSystem : ModSystem
     {
         private const string ExtraTraitsAttribute = "extraTraits";
@@ -38,6 +39,7 @@ namespace multiclassreborn
         internal static MulticlassRebornModSystem ClientInstance { get; private set; }
         internal ClassLedger Ledger { get; } = new ClassLedger();
 
+        // Runs after core survival systems have registered class data.
         public override double ExecuteOrder()
         {
             return 2;
@@ -55,6 +57,7 @@ namespace multiclassreborn
             api.RegisterItemClass("RetrainingGlyphstone", typeof(ClassRetrainGlyphItem));
         }
 
+        // Loads server config, player state hooks, commands, and recipes.
         public override void StartServerSide(ICoreServerAPI api)
         {
             sapi = api;
@@ -66,19 +69,21 @@ namespace multiclassreborn
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, RequireGlyphs={6}, StartingAptitudeTokens={7}, BestPositiveOnly={8}, WorstNegativeOnly={9}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, DropOverMax={6}, RequireGlyphs={7}, StartingAptitudeTokens={8}, BestPositiveOnly={9}, WorstNegativeOnly={10}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
                 Config.EnableGlyphstoneRecipes,
                 Config.ExtraClassScale,
                 Config.MaxExtraClasses,
+                Config.DropExtraClassesOverMax,
                 Config.RequireGlyphs,
                 Config.StartingAptitudeTokens,
                 Config.OnlyApplyBestPositiveTraitBonus,
                 Config.OnlyApplyWorstNegativeTraitPenalty);
         }
 
+        // Loads client lookup data, GUI patches, handbook ordering, and hotkeys.
         public override void StartClientSide(ICoreClientAPI api)
         {
             capi = api;
@@ -104,9 +109,7 @@ namespace multiclassreborn
             });
         }
 
-        /// <summary>
-        /// Removes client patches when the mod system shuts down.
-        /// </summary>
+        // Removes client hooks when the mod system shuts down.
         public override void Dispose()
         {
             if (survivalHandbook != null)
@@ -120,9 +123,7 @@ namespace multiclassreborn
             base.Dispose();
         }
 
-        /// <summary>
-        /// Places our guide after vanilla game mechanic pages and before tutorials.
-        /// </summary>
+        // Keep the guide near the vanilla mechanics pages instead of burying it with tutorials.
         private static void MoveGuideAfterVanillaGuides(List<GuiHandbookPage> pages)
         {
             int guideIndex = pages.FindIndex(page => page.PageCode == HandbookPageCode);
@@ -135,17 +136,13 @@ namespace multiclassreborn
             pages.Insert(insertIndex, guidePage);
         }
 
-        /// <summary>
-        /// Detects vanilla game mechanic pages by their handbook page code.
-        /// </summary>
+        // Identifies the vanilla guide group by page code.
         private static bool IsVanillaGameMechanicPage(GuiHandbookPage page)
         {
             return page.PageCode.StartsWith("gamemechanicinfo-", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// Builds the /multiclass command surface used by both chat and the GUI.
-        /// </summary>
+        // Registers the /multiclass command surface used by chat and the GUI.
         private void RegisterClassCommands()
         {
             CommandArgumentParsers parsers = sapi.ChatCommands.Parsers;
@@ -209,9 +206,7 @@ namespace multiclassreborn
                 .EndSubCommand();
         }
 
-        /// <summary>
-        /// Registers optional glyphstone crafting recipes when enabled.
-        /// </summary>
+        // Adds optional craftable glyphstone recipes when the config allows it.
         private void RegisterGlyphstoneRecipes()
         {
             if (!Config.EnableGlyphstoneRecipes) return;
@@ -220,9 +215,7 @@ namespace multiclassreborn
             RegisterGlyphstoneRecipe("craft-retraining-glyphstone", RetrainGlyphItemCode, "gear-rusty");
         }
 
-        /// <summary>
-        /// Registers one shaped glyphstone recipe with a role item.
-        /// </summary>
+        // Builds one shaped recipe around the item that defines its purpose.
         private void RegisterGlyphstoneRecipe(string recipeName, string outputCode, string roleItemCode)
         {
             GridRecipe recipe = new GridRecipe()
@@ -257,17 +250,13 @@ namespace multiclassreborn
             sapi.RegisterCraftingRecipe(recipe);
         }
 
-        /// <summary>
-        /// Builds a wildcard ingredient for any vanilla-category stone piece.
-        /// </summary>
+        // Allows any vanilla stone variant in the recipe corners.
         private CraftingRecipeIngredient StoneIngredient()
         {
             return ItemIngredient("stone-*");
         }
 
-        /// <summary>
-        /// Builds a wildcard ingredient for gold or silver metal bits.
-        /// </summary>
+        // Limits the wildcard metal bit ingredient to gold and silver.
         private CraftingRecipeIngredient MetalBitIngredient()
         {
             CraftingRecipeIngredient ingredient = ItemIngredient("metalbit-*");
@@ -276,9 +265,7 @@ namespace multiclassreborn
             return ingredient;
         }
 
-        /// <summary>
-        /// Builds one item ingredient for programmatic grid recipes.
-        /// </summary>
+        // Creates a one-item crafting ingredient for programmatic recipes.
         private CraftingRecipeIngredient ItemIngredient(string code)
         {
             return new CraftingRecipeIngredient()
@@ -289,6 +276,7 @@ namespace multiclassreborn
             };
         }
 
+        // Normalizes command handlers that require an actual server player.
         private TextCommandResult RunPlayerCommand(TextCommandCallingArgs args, Action<IServerPlayer> action)
         {
             if (args.Caller.Player is not IServerPlayer player)
@@ -300,22 +288,37 @@ namespace multiclassreborn
             return TextCommandResult.Success("", null);
         }
 
+        // Opens the client dialog in retraining mode.
         internal void OpenClassDialogForRetraining()
         {
             classDialog?.OpenForRetraining();
         }
 
+        // Opens the client dialog in learning mode.
         internal void OpenClassDialogForLearning()
         {
             classDialog?.OpenForLearning();
         }
 
+        // Syncs config-backed player state after character creation finishes.
         private void PreparePlayerState(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
 
-            // Always sync the current token rule. The old implementation only
-            // wrote true, which could leave clients stuck after config changes.
+            RecountUsedSlots(state);
+            PruneExtraClassesOverChangedMax(state);
+            ReviewPlayerConfig(player, state);
+            MigrateLegacyGlyphItems(player);
+            ReapplyClassEffects(player);
+        }
+
+        // Reviews config-sensitive player state every join without removing classes.
+        private void ReviewPlayerConfig(IServerPlayer player, RebornPlayerClassState state)
+        {
+            bool previousRequireGlyphs = state.ConfigReviewed
+                ? state.ReviewedRequireGlyphs
+                : state.SlotsInitialized && state.RequiresGlyphs;
+
             state.RequiresGlyphs = Config.RequireGlyphs;
             state.AllowsBaseClassForgetting = Config.AllowForgettingBaseClass;
             state.AllowsCommonerBaseClassChoice = Config.AllowCommonersChooseBaseClass;
@@ -325,25 +328,45 @@ namespace multiclassreborn
 
             if (!Config.RequireGlyphs)
             {
-                // Free-slot servers should give every player the configured
-                // class capacity, including players migrated from rune servers.
-                state.AvailableSlots = Config.MaxExtraClasses;
+                // Free-slot worlds grant the current configured capacity.
+                state.AvailableSlots = Math.Max(state.UsedSlots, Config.MaxExtraClasses);
                 state.SlotsInitialized = true;
+            }
+            else if (state.SlotsInitialized && !previousRequireGlyphs)
+            {
+                // Switching to glyphstones removes only unused free capacity.
+                state.AvailableSlots = state.UsedSlots;
             }
             else if (!state.SlotsInitialized)
             {
                 GrantStartingAptitudeTokens(player);
+                state.AvailableSlots = Math.Max(state.AvailableSlots, state.UsedSlots);
                 state.SlotsInitialized = true;
             }
+            else
+            {
+                // Glyphstone worlds keep earned or occupied slots, but trim unused over-cap space.
+                state.AvailableSlots = Math.Max(state.UsedSlots, Math.Min(state.AvailableSlots, Config.MaxExtraClasses));
+            }
 
-            RecountUsedSlots(state);
-            MigrateLegacyGlyphItems(player);
-            ReapplyClassEffects(player);
+            state.ReviewedRequireGlyphs = Config.RequireGlyphs;
+            state.ReviewedMaxExtraClasses = Config.MaxExtraClasses;
+            state.ConfigReviewed = true;
         }
 
-        /// <summary>
-        /// Grants first-join Aptitude Glyphstones only on token-gated servers.
-        /// </summary>
+        // Optionally drops learned classes only when the configured max changes.
+        private void PruneExtraClassesOverChangedMax(RebornPlayerClassState state)
+        {
+            if (!Config.DropExtraClassesOverMax) return;
+            if (!state.ConfigReviewed) return;
+            if (state.ReviewedMaxExtraClasses == Config.MaxExtraClasses) return;
+            if (state.ExtraClasses.Count <= Config.MaxExtraClasses) return;
+
+            state.ExtraClasses = state.ExtraClasses.Take(Config.MaxExtraClasses).ToList();
+            state.UsedSlots = state.ExtraClasses.Count;
+        }
+
+        // First-join tokens only matter on glyph-gated servers.
         private void GrantStartingAptitudeTokens(IServerPlayer player)
         {
             if (!Config.RequireGlyphs || Config.StartingAptitudeTokens <= 0) return;
@@ -363,6 +386,7 @@ namespace multiclassreborn
             sapi.World.SpawnItemEntity(stack, dropPos);
         }
 
+        // Adds one usable extra-class slot if the player is below the configured cap.
         internal bool TryGrantClassSlot(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
@@ -379,6 +403,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Learns one extra class after validating slots, duplicates, and class existence.
         internal void LearnExtraClass(IServerPlayer player, string classCode)
         {
             string normalizedCode = NormalizeClassCode(classCode);
@@ -423,16 +448,19 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-added-extra-class", normalizedCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
         }
 
+        // Forgets an extra class through the non-glyph command path.
         internal void ForgetExtraClass(IServerPlayer player, string classCode)
         {
             ForgetExtraClass(player, classCode, false);
         }
 
+        // Directs players to the safer confirmation flow.
         private void RejectUnconfirmedForget(IServerPlayer player)
         {
             Tell(player, Lang.Get("multiclassreborn:message-open-retraining-confirm"), EnumChatType.Notification);
         }
 
+        // Routes confirmed forgets to either base-class or extra-class removal.
         internal void ForgetClassAfterConfirmation(IServerPlayer player, string classCode)
         {
             string normalizedCode = NormalizeClassCode(classCode);
@@ -447,6 +475,7 @@ namespace multiclassreborn
             ForgetExtraClass(player, normalizedCode, Config.RequireGlyphs);
         }
 
+        // Removes one extra class and optionally consumes a retraining glyphstone first.
         private void ForgetExtraClass(IServerPlayer player, string classCode, bool consumeGlyphstone)
         {
             string normalizedCode = NormalizeClassCode(classCode);
@@ -472,6 +501,7 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-removed-extra-class", normalizedCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
         }
 
+        // Resets the main class to Commoner when the server allows base-class forgetting.
         private void ForgetBaseClassAfterConfirmation(IServerPlayer player, string classCode)
         {
             if (!Config.AllowForgettingBaseClass)
@@ -498,6 +528,7 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-forgot-base-class"), EnumChatType.Notification);
         }
 
+        // Lets Commoners promote a chosen class to their main class when configured.
         private void ChooseBaseClass(IServerPlayer player, string classCode)
         {
             string normalizedCode = NormalizeClassCode(classCode);
@@ -534,6 +565,7 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-set-base-class", normalizedCode), EnumChatType.Notification);
         }
 
+        // Retraining glyphstones are intentionally hotbar-only so use is a deliberate action.
         private bool TryConsumeRetrainingGlyphstone(IServerPlayer player)
         {
             ItemSlot activeSlot = player.InventoryManager.ActiveHotbarSlot;
@@ -553,6 +585,7 @@ namespace multiclassreborn
             return false;
         }
 
+        // Consumes one matching item from a slot.
         private bool TryConsumeFromSlot(ItemSlot slot, string itemCode)
         {
             if (slot == null || slot.Empty) return false;
@@ -563,6 +596,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Handles hotbar detection across inventory ids and class names.
         private bool IsHotbarInventory(IInventory inventory)
         {
             string inventoryId = inventory?.InventoryID ?? "";
@@ -572,6 +606,7 @@ namespace multiclassreborn
                 || className.IndexOf("hotbar", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // Converts old rune/glyph item stacks in player inventories.
         private void MigrateLegacyGlyphItems(IServerPlayer player)
         {
             foreach (IInventory inventory in player.InventoryManager.InventoriesOrdered)
@@ -586,6 +621,7 @@ namespace multiclassreborn
             }
         }
 
+        // Limits item migration to player-owned inventories and skips creative storage.
         private bool ShouldMigrateInventory(IInventory inventory)
         {
             if (inventory == null) return false;
@@ -601,6 +637,8 @@ namespace multiclassreborn
                 || inventoryId.IndexOf("character", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // Some inventory implementations can throw while loading; skip them instead of
+        // blocking player login over a best-effort item migration.
         private bool TryGetInventoryCount(IInventory inventory, out int slotCount)
         {
             slotCount = 0;
@@ -619,6 +657,7 @@ namespace multiclassreborn
             }
         }
 
+        // Replaces one legacy glyph item stack while preserving count and attributes.
         private void MigrateLegacyGlyphSlot(ItemSlot slot)
         {
             if (slot == null || slot.Empty) return;
@@ -648,6 +687,7 @@ namespace multiclassreborn
             slot.MarkDirty();
         }
 
+        // Clears all extra classes and their applied effects.
         private void ClearExtraClasses(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
@@ -658,6 +698,7 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-extra-classes-cleared"), EnumChatType.Notification);
         }
 
+        // Prints the player's learned extra classes.
         private void ShowExtraClassList(IServerPlayer player)
         {
             List<string> extraClasses = new RebornPlayerClassState(player.Entity).ExtraClasses;
@@ -666,6 +707,7 @@ namespace multiclassreborn
                 : Lang.Get("multiclassreborn:message-extra-classes", string.Join(", ", extraClasses)), EnumChatType.Notification);
         }
 
+        // Prints enabled class codes for command users.
         private void ShowAvailableClasses(IServerPlayer player)
         {
             List<string> classCodes = Ledger.EnabledClasses.Select(classDef => classDef.Code).OrderBy(code => code).ToList();
@@ -674,6 +716,7 @@ namespace multiclassreborn
                 : Lang.Get("multiclassreborn:message-available-classes", classCodes.Count, string.Join(", ", classCodes)), EnumChatType.Notification);
         }
 
+        // Prints current main class, slot usage, and extra class list.
         private void ShowClassSummary(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
@@ -688,6 +731,7 @@ namespace multiclassreborn
             Tell(player, message, EnumChatType.Notification);
         }
 
+        // Prints trait and stat details for one class code.
         private void ShowClassDetails(IServerPlayer player, string classCode)
         {
             string normalizedCode = NormalizeClassCode(classCode);
@@ -725,6 +769,7 @@ namespace multiclassreborn
             Tell(player, text.ToString(), EnumChatType.Notification);
         }
 
+        // Gives a configured glyphstone item to an online player.
         private void GiveAptitudeGlyphItem(IServerPlayer admin, string playerName, string itemCode, string displayNameKey)
         {
             IServerPlayer target = sapi.World.AllOnlinePlayers
@@ -755,6 +800,7 @@ namespace multiclassreborn
             Tell(target, Lang.Get("multiclassreborn:message-received-item", Lang.Get(displayNameKey)), EnumChatType.Notification);
         }
 
+        // Rebuilds all extra-class stat and recipe effects from current state.
         internal void ReapplyClassEffects(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
@@ -772,6 +818,7 @@ namespace multiclassreborn
             // recalculation is intentionally left to the game behavior layer.
         }
 
+        // Collects distinct trait codes from learned extra classes.
         private HashSet<string> GatherExtraTraitCodes(List<string> extraClasses)
         {
             HashSet<string> traitCodes = new HashSet<string>();
@@ -790,6 +837,7 @@ namespace multiclassreborn
             return traitCodes;
         }
 
+        // Applies scaled stat modifiers after config duplicate handling.
         private void ApplyScaledStats(IServerPlayer player, HashSet<string> traitCodes)
         {
             List<TraitStatCandidate> candidates = GatherTraitStatCandidates(traitCodes);
@@ -802,9 +850,7 @@ namespace multiclassreborn
             }
         }
 
-        /// <summary>
-        /// Flattens extra-class traits into individual stat candidates.
-        /// </summary>
+        // Flattens selected traits into stat candidates for filtering.
         private List<TraitStatCandidate> GatherTraitStatCandidates(HashSet<string> traitCodes)
         {
             List<TraitStatCandidate> candidates = new List<TraitStatCandidate>();
@@ -823,9 +869,7 @@ namespace multiclassreborn
             return candidates;
         }
 
-        /// <summary>
-        /// Applies configured duplicate handling separately by trait polarity.
-        /// </summary>
+        // Positive and negative traits can use different duplicate rules.
         private IEnumerable<TraitStatCandidate> ChooseConfiguredTraitStats(List<TraitStatCandidate> candidates)
         {
             foreach (var group in candidates.GroupBy(candidate => new { candidate.StatCode, candidate.TraitType }))
@@ -843,9 +887,7 @@ namespace multiclassreborn
             }
         }
 
-        /// <summary>
-        /// Tests whether this trait polarity should suppress weaker duplicates.
-        /// </summary>
+        // Checks whether this trait type should suppress weaker duplicate stats.
         private bool ShouldKeepOnlyStrongest(EnumTraitType traitType)
         {
             if (traitType == EnumTraitType.Positive) return Config.OnlyApplyBestPositiveTraitBonus;
@@ -854,9 +896,7 @@ namespace multiclassreborn
             return false;
         }
 
-        /// <summary>
-        /// Chooses the largest absolute stat change from one duplicate group.
-        /// </summary>
+        // Chooses the candidate with the largest absolute stat change.
         private TraitStatCandidate ChooseStrongestTraitStat(IEnumerable<TraitStatCandidate> candidates)
         {
             return candidates
@@ -864,6 +904,7 @@ namespace multiclassreborn
                 .First();
         }
 
+        // Removes all stat and recipe effects owned by this mod.
         private void ClearRebornStats(IServerPlayer player)
         {
             foreach (Trait trait in Ledger.TraitByCode.Values)
@@ -882,6 +923,7 @@ namespace multiclassreborn
             RemoveRecipeTraits(player.Entity);
         }
 
+        // Writes extra trait codes into watched attributes for recipe checks.
         private void WriteRecipeTraits(EntityPlayer entity, HashSet<string> traitCodes)
         {
             if (!Config.AllowRecipeTraits || traitCodes.Count == 0)
@@ -894,54 +936,51 @@ namespace multiclassreborn
             entity.WatchedAttributes.MarkPathDirty(ExtraTraitsAttribute);
         }
 
+        // Removes extra recipe traits from watched attributes.
         private void RemoveRecipeTraits(EntityPlayer entity)
         {
             entity.WatchedAttributes.RemoveAttribute(ExtraTraitsAttribute);
             entity.WatchedAttributes.MarkPathDirty(ExtraTraitsAttribute);
         }
 
+        // Cleans invalid or duplicate extra classes before recounting used slots.
         private void RecountUsedSlots(RebornPlayerClassState state)
         {
             List<string> cleanClasses = state.ExtraClasses
                 .Where(classCode => Ledger.ClassByCode.ContainsKey(classCode))
                 .Distinct()
-                .Take(Config.MaxExtraClasses)
                 .ToList();
 
             state.ExtraClasses = cleanClasses;
             state.UsedSlots = cleanClasses.Count;
         }
 
+        // Normalizes command input to class ledger keys.
         private string NormalizeClassCode(string classCode)
         {
             return (classCode ?? "").Trim().ToLowerInvariant();
         }
 
+        // Reads the vanilla character class attribute.
         private string GetMainClassCode(EntityPlayer entity)
         {
             return entity.WatchedAttributes.GetString("characterClass", "none");
         }
 
-        /// <summary>
-        /// Uses the original mod stat source so migrated worlds overwrite old values.
-        /// </summary>
+        // Match the original mod's stat source so migrated worlds overwrite old values.
         private string BuildCanonicalStatSourceCode(string traitCode)
         {
             return $"multiclass_{traitCode}";
         }
 
-        /// <summary>
-        /// Includes the early Reborn source so 0.1.0 test worlds are cleaned up.
-        /// </summary>
+        // Include the early Reborn source so 0.1.0 test worlds are cleaned up.
         private IEnumerable<string> BuildStatSourceCodes(string traitCode)
         {
             yield return BuildCanonicalStatSourceCode(traitCode);
             yield return $"multiclassreborn_{traitCode}";
         }
 
-        /// <summary>
-        /// Carries one trait stat value before duplicate handling is applied.
-        /// </summary>
+        // Carries one raw trait stat before config duplicate handling is applied.
         private sealed class TraitStatCandidate
         {
             public readonly string TraitCode;
@@ -949,6 +988,7 @@ namespace multiclassreborn
             public readonly double RawValue;
             public readonly EnumTraitType TraitType;
 
+            // Captures the values needed for server-side duplicate-stat filtering.
             public TraitStatCandidate(string traitCode, string statCode, double rawValue, EnumTraitType traitType)
             {
                 TraitCode = traitCode;
@@ -958,6 +998,7 @@ namespace multiclassreborn
             }
         }
 
+        // Sends a chat message to the player's general chat group.
         private void Tell(IServerPlayer player, string message, EnumChatType chatType)
         {
             player.SendMessage(GlobalConstants.GeneralChatGroup, message, chatType, null);

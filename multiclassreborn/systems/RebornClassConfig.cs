@@ -9,6 +9,7 @@ using Vintagestory.API.Server;
 
 namespace multiclassreborn.systems
 {
+    // Server config with legacy key names preserved for old multiclass worlds.
     public class RebornClassConfig
     {
         [JsonProperty("AllowStats")]
@@ -43,6 +44,9 @@ namespace multiclassreborn.systems
 
         public int MaxExtraClasses = 3;
 
+        // Removes learned extra classes above MaxExtraClasses after that value changes.
+        public bool DropExtraClassesOverMax;
+
         [JsonProperty("RequireTokens")]
         public bool RequireGlyphs;
 
@@ -52,9 +56,7 @@ namespace multiclassreborn.systems
         private const string ConfigFileName = "multiclassreborn.json";
         private const string LegacyConfigFileName = "multiclass.json";
 
-        /// <summary>
-        /// Loads the persisted config without stripping its inline comments.
-        /// </summary>
+        // Preserve user comments by only rewriting plain JSON or newly created configs.
         public static RebornClassConfig Load(ICoreServerAPI sapi)
         {
             RebornClassConfig config = null;
@@ -89,9 +91,7 @@ namespace multiclassreborn.systems
             return config;
         }
 
-        /// <summary>
-        /// Reads the original multiclass config as the first Reborn config seed.
-        /// </summary>
+        // Reads the old multiclass config when Reborn has not created one yet.
         private static RebornClassConfig LoadLegacyConfig(string legacyConfigPath)
         {
             if (!File.Exists(legacyConfigPath)) return null;
@@ -103,9 +103,7 @@ namespace multiclassreborn.systems
             return config;
         }
 
-        /// <summary>
-        /// Prevents config typos from producing impossible slot or stat states.
-        /// </summary>
+        // Clamps values that would create impossible slot or stat states.
         private void ClampUnsafeValues()
         {
             if (MaxExtraClasses < 0) MaxExtraClasses = 0;
@@ -113,26 +111,20 @@ namespace multiclassreborn.systems
             if (ExtraClassScale < 0f) ExtraClassScale = 0f;
         }
 
-        /// <summary>
-        /// Tests whether an existing config already has manual comments to preserve.
-        /// </summary>
+        // Detects hand-written comments so the config file is left alone.
         private static bool HasJsonComments(string configText)
         {
             return configText?.Contains("//", StringComparison.Ordinal) == true
                 || configText?.Contains("/*", StringComparison.Ordinal) == true;
         }
 
-        /// <summary>
-        /// Writes a readable config template with the current values.
-        /// </summary>
+        // Writes the readable config template used for new or plain JSON configs.
         private static void WriteCommentedConfig(string configPath, RebornClassConfig config)
         {
             File.WriteAllText(configPath, BuildConfigText(config));
         }
 
-        /// <summary>
-        /// Builds the commented JSON config used by new and upgraded worlds.
-        /// </summary>
+        // Builds commented JSON while preserving the current config values.
         private static string BuildConfigText(RebornClassConfig config)
         {
             return $@"{{
@@ -163,6 +155,9 @@ namespace multiclassreborn.systems
   // Maximum number of extra class slots a player can have.
   ""MaxExtraClasses"": {config.MaxExtraClasses},
 
+  // Removes learned extra classes above MaxExtraClasses after that value changes.
+  ""DropExtraClassesOverMax"": {JsonBool(config.DropExtraClassesOverMax)},
+
   // Requires glyphstones for adding slots and forgetting classes.
   ""RequireTokens"": {JsonBool(config.RequireGlyphs)},
 
@@ -172,9 +167,7 @@ namespace multiclassreborn.systems
 ";
         }
 
-        /// <summary>
-        /// Formats booleans as JSON literals.
-        /// </summary>
+        // Formats booleans as lowercase JSON literals.
         private static string JsonBool(bool value)
         {
             return value ? "true" : "false";

@@ -15,6 +15,7 @@ using Vintagestory.GameContent;
 
 namespace multiclassreborn
 {
+    // Client-side dialog for learning, previewing, and forgetting extra classes.
     internal class ClassPickerDialog : GuiDialog
     {
         private const double DetailScrollbarWidth = 14;
@@ -31,12 +32,14 @@ namespace multiclassreborn
 
         public override string ToggleKeyCombinationCode => "multiclassgui";
 
+        // Keeps the client API and mod system close for dialog rebuilds.
         public ClassPickerDialog(ICoreClientAPI capi, MulticlassRebornModSystem classSystem) : base(capi)
         {
             clientApi = capi;
             this.classSystem = classSystem;
         }
 
+        // Opens the normal learning view from the hotkey.
         public override bool TryOpen()
         {
             openedForRetraining = false;
@@ -45,6 +48,7 @@ namespace multiclassreborn
             return base.TryOpen();
         }
 
+        // Opens the same dialog in forget-class mode.
         public bool OpenForRetraining()
         {
             openedForRetraining = true;
@@ -53,18 +57,20 @@ namespace multiclassreborn
             return IsOpened() || base.TryOpen();
         }
 
+        // Opens the learning view after an Aptitude Glyphstone grants a slot.
         public bool OpenForLearning()
         {
             openedForRetraining = false;
             pendingForgetClassCode = null;
             ComposeDialog();
+
+            // Slot grants happen server-side, so reopen from glyph use after the state sync.
             clientApi.Event.RegisterCallback(_ => ComposeDialog(), 500);
             return IsOpened() || base.TryOpen();
         }
 
-        /// <summary>
-        /// Rebuilds the dialog from watched player state each time it opens.
-        /// </summary>
+        // Pull from watched attributes every time so the client reflects server-side
+        // slot changes after commands, glyphs, and migration.
         private void ComposeDialog()
         {
             SingleComposer?.Dispose();
@@ -106,6 +112,7 @@ namespace multiclassreborn
             SingleComposer.Compose();
         }
 
+        // Shows slot usage in the title for both dialog modes.
         private string BuildTitle(RebornPlayerClassState state)
         {
             return openedForRetraining
@@ -113,6 +120,7 @@ namespace multiclassreborn
                 : Lang.Get("multiclassreborn:dialog-title-choose", state.UsedSlots, state.AvailableSlots);
         }
 
+        // Adds the paged class list on the left side of the dialog.
         private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds, string mainClass, List<string> extraClasses)
         {
             int rowsPerPage = 16;
@@ -134,6 +142,7 @@ namespace multiclassreborn
             }
         }
 
+        // Prefixes the selected class without changing the localized class name.
         private string BuildClassButtonLabel(string classCode, string mainClass, List<string> extraClasses)
         {
             string className = ClassTraitTextUtil.GetClassName(classCode);
@@ -141,6 +150,7 @@ namespace multiclassreborn
             return "  " + className;
         }
 
+        // Colors base and learned classes so the list can be scanned quickly.
         private CairoFont BuildClassButtonFont(string classCode, string mainClass, List<string> extraClasses)
         {
             CairoFont font = CairoFont.WhiteSmallText();
@@ -150,6 +160,7 @@ namespace multiclassreborn
             return font;
         }
 
+        // Chooses the correct action button for the selected class and dialog mode.
         private void AddClassDetails(ElementBounds detailBounds, ElementBounds actionBounds, string mainClass, List<string> extraClasses, RebornPlayerClassState state)
         {
             if (selectedClassCode == null || !classSystem.Ledger.ClassByCode.TryGetValue(selectedClassCode, out CharacterClass classDef))
@@ -209,6 +220,7 @@ namespace multiclassreborn
             }
         }
 
+        // Requires a second click before sending the destructive forget command.
         private void AddForgetConfirmation(ElementBounds actionBounds, CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
         {
             ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, 235, 30);
@@ -218,9 +230,7 @@ namespace multiclassreborn
             SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => SendClassCommand("confirmforget", classDef.Code), forgetBounds, EnumButtonStyle.Normal, "confirmForget");
         }
 
-        /// <summary>
-        /// Adds clipped, measured class details with a scrollbar when needed.
-        /// </summary>
+        // Richtext does not report a useful height until we measure explicit lines.
         private void AddScrollableClassDetails(string detailText, ElementBounds detailBounds)
         {
             CairoFont font = CairoFont.WhiteSmallText();
@@ -240,9 +250,7 @@ namespace multiclassreborn
             SingleComposer.OnComposed += () => SingleComposer.GetScrollbar("classDetailsScrollbar")?.SetHeights((float)detailBounds.fixedHeight, (float)contentHeight);
         }
 
-        /// <summary>
-        /// Scrolls the class detail pane.
-        /// </summary>
+        // Moves the detail richtext inside the clipped panel.
         private void OnClassDetailsScroll(float dy)
         {
             ElementBounds bounds = SingleComposer?.GetRichtext("classDetails")?.Bounds;
@@ -252,6 +260,7 @@ namespace multiclassreborn
             bounds.CalcWorldBounds();
         }
 
+        // Builds the selected class preview with scaled extra-class stat values.
         private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
         {
             CairoFont font = CairoFont.WhiteSmallText();
@@ -317,9 +326,7 @@ namespace multiclassreborn
             return text.ToString();
         }
 
-        /// <summary>
-        /// Builds applied stat keys for learned or previewed extra classes.
-        /// </summary>
+        // Preview the selected class as if it were learned, but only for extra classes.
         private HashSet<string> BuildPreviewAppliedStatKeys(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state)
         {
             if (isMainClass) return null;
@@ -337,6 +344,7 @@ namespace multiclassreborn
                 state.OnlyApplyWorstNegativeTraitPenalty);
         }
 
+        // Selects a class and clears any pending forget confirmation.
         private bool SelectClass(string classCode)
         {
             selectedClassCode = classCode;
@@ -345,6 +353,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Arms the selected class for the second forget click.
         private bool ConfirmForget(string classCode)
         {
             pendingForgetClassCode = classCode;
@@ -352,6 +361,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Leaves retraining mode without sending a command.
         private bool CancelForget()
         {
             pendingForgetClassCode = null;
@@ -359,6 +369,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Pages the class list backward.
         private bool OnPreviousPage()
         {
             pageIndex = Math.Max(0, pageIndex - 1);
@@ -366,6 +377,7 @@ namespace multiclassreborn
             return true;
         }
 
+        // Pages the class list forward.
         private bool OnNextPage()
         {
             pageIndex++;
@@ -373,14 +385,18 @@ namespace multiclassreborn
             return true;
         }
 
+        // Sends the selected class action through the existing chat command path.
         private bool SendClassCommand(string action, string classCode)
         {
             clientApi.SendChatMessage($"/multiclass {action} {classCode}");
             pendingForgetClassCode = null;
+
+            // Chat commands complete after the packet round-trip; refresh once state catches up.
             clientApi.Event.RegisterCallback(_ => RefreshAfterClassCommand(), 500);
             return true;
         }
 
+        // Rebuilds the dialog and Traits tab after server state syncs back.
         private void RefreshAfterClassCommand()
         {
             RebornPlayerClassState state = new RebornPlayerClassState(clientApi.World.Player.Entity);
@@ -390,6 +406,7 @@ namespace multiclassreborn
             CharacterTraitsTabPatch.RefreshOpenTraitsTab();
         }
 
+        // Switches back to learning when retraining no longer has anything useful to do.
         private bool ShouldReturnToLearning(RebornPlayerClassState state)
         {
             if (!openedForRetraining) return false;
@@ -399,6 +416,7 @@ namespace multiclassreborn
             return state.RequiresGlyphs && !ClientHasRetrainingGlyphstone();
         }
 
+        // Checks the client hotbar mirror before keeping the retraining view open.
         private bool ClientHasRetrainingGlyphstone()
         {
             foreach (IInventory inventory in clientApi.World.Player.InventoryManager.InventoriesOrdered)

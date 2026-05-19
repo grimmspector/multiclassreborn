@@ -8,6 +8,7 @@ using Vintagestory.GameContent;
 
 namespace multiclassreborn.systems
 {
+    // Cached lookup of class and trait definitions loaded from game assets.
     internal class ClassLedger
     {
         private static readonly string[] ClassAssetPaths =
@@ -21,9 +22,8 @@ namespace multiclassreborn.systems
         public Dictionary<string, Trait> TraitByCode { get; private set; } = new Dictionary<string, Trait>();
         public Dictionary<string, CharacterClass> ClassByCode { get; private set; } = new Dictionary<string, CharacterClass>();
 
-        /// <summary>
-        /// Reads the game and mod class definition assets into quick lookup maps.
-        /// </summary>
+        // Load every class/trait asset before building maps, since other mods can add
+        // character classes through the same config paths.
         public void Reload(ICoreAPI api)
         {
             List<Trait> discoveredTraits = new List<Trait>();

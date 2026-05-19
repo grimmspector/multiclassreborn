@@ -8,8 +8,10 @@ using Vintagestory.API.Server;
 
 namespace multiclassreborn.items
 {
+    // Right-click glyphstone that grants one extra class slot when the server accepts it.
     internal class ClassSlotGlyphItem : Item
     {
+        // The client opens the picker immediately; the server consumes the item after grant.
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handHandling)
         {
             base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling);
@@ -40,6 +42,7 @@ namespace multiclassreborn.items
             slot.MarkDirty();
         }
 
+        // Shows the right-click help text in the item interaction overlay.
         public override WorldInteraction[] GetHeldInteractionHelp(ItemSlot inSlot)
         {
             return new WorldInteraction[]

@@ -12,33 +12,25 @@ using Vintagestory.GameContent;
 
 namespace multiclassreborn
 {
-    /// <summary>
-    /// Shared text helpers for compact class trait panes.
-    /// </summary>
+    // Shared text helpers for class, trait, and VTML stat display.
     internal static class ClassTraitTextUtil
     {
         private static readonly TextDrawUtil TextDraw = new TextDrawUtil();
 
-        /// <summary>
-        /// Gets a localized class name with a readable code fallback.
-        /// </summary>
+        // Returns a localized class name, falling back to a readable code.
         internal static string GetClassName(string classCode)
         {
             string name = Lang.GetIfExists("characterclass-" + classCode);
             return string.IsNullOrWhiteSpace(name) ? CapitalizeCode(classCode) : name;
         }
 
-        /// <summary>
-        /// Formats a trait name using the vanilla trait polarity colors.
-        /// </summary>
+        // Formats a trait name with the same polarity colors the game uses.
         internal static string BuildTraitNameText(Trait trait)
         {
             return $"<font color=\"{GetTraitColor(trait)}\"><strong>{GetTraitName(trait.Code)}</strong></font>";
         }
 
-        /// <summary>
-        /// Gets a localized trait name with a readable code fallback.
-        /// </summary>
+        // Returns a localized trait name from either vanilla trait key format.
         internal static string GetTraitName(string traitCode)
         {
             string name = Lang.GetIfExists("traitname-" + traitCode);
@@ -50,17 +42,13 @@ namespace multiclassreborn
             return CapitalizeCode(traitCode);
         }
 
-        /// <summary>
-        /// Adds a wrapped bullet line using measured visible text width.
-        /// </summary>
+        // Adds one indented bullet that can wrap inside narrow panes.
         internal static void AppendWrappedBullet(StringBuilder text, string content, CairoFont font, double maxWidth)
         {
             AppendWrappedLine(text, "    \u2022 ", "      ", content, font, maxWidth);
         }
 
-        /// <summary>
-        /// Adds a wrapped line while preserving VTML markup.
-        /// </summary>
+        // Keep VTML tags out of the width math, otherwise rich trait text wraps early.
         internal static void AppendWrappedLine(StringBuilder text, string prefix, string continuationPrefix, string content, CairoFont font, double maxWidth)
         {
             string cleanContent = StripVtml(content);
@@ -77,9 +65,7 @@ namespace multiclassreborn
             }
         }
 
-        /// <summary>
-        /// Measures content height from explicit lines and actual font metrics.
-        /// </summary>
+        // Estimates richtext height from line count and current font metrics.
         internal static double MeasureExplicitTextHeight(string text, CairoFont font, double minimumHeight)
         {
             string trimmed = (text ?? "").TrimEnd('\r', '\n');
@@ -88,9 +74,7 @@ namespace multiclassreborn
             return Math.Max(minimumHeight, lines * TextDraw.GetLineHeight(font));
         }
 
-        /// <summary>
-        /// Removes VTML tags for safe wrapping in tight panes.
-        /// </summary>
+        // Removes VTML tags before plain-text checks and measurements.
         internal static string StripVtml(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
@@ -98,9 +82,7 @@ namespace multiclassreborn
             return Regex.Replace(text, "<.*?>", "").Trim();
         }
 
-        /// <summary>
-        /// Tests localized VTML for real visible text.
-        /// </summary>
+        // Filters missing localization keys and empty VTML.
         internal static bool HasVisibleLocalizedText(string text, string localizationKey)
         {
             if (string.IsNullOrWhiteSpace(text)) return false;
@@ -109,9 +91,7 @@ namespace multiclassreborn
             return !string.IsNullOrWhiteSpace(StripVtml(text));
         }
 
-        /// <summary>
-        /// Builds the extra-class stat lines that survive duplicate filtering.
-        /// </summary>
+        // Mirrors the server-side duplicate-stat rules so previews match applied stats.
         internal static HashSet<string> BuildAppliedExtraStatKeys(MulticlassRebornModSystem classSystem, IEnumerable<string> extraClassCodes, bool onlyBestPositive, bool onlyWorstNegative)
         {
             List<TraitStatLine> candidates = GatherExtraStatLines(classSystem, extraClassCodes);
@@ -134,17 +114,13 @@ namespace multiclassreborn
             return appliedKeys;
         }
 
-        /// <summary>
-        /// Tests whether an extra-class stat line should be shown as applied.
-        /// </summary>
+        // Checks whether duplicate-stat filtering left this stat visible.
         internal static bool IsAppliedExtraStat(HashSet<string> appliedStatKeys, string traitCode, string statCode)
         {
             return appliedStatKeys == null || appliedStatKeys.Contains(BuildStatKey(traitCode, statCode));
         }
 
-        /// <summary>
-        /// Formats base stat text and optional extra-class scaled value.
-        /// </summary>
+        // Builds the stat line shown in the dialog and Traits tab.
         internal static string BuildStatText(KeyValuePair<string, double> stat, float scale, bool showScaledValue, bool isApplied = true)
         {
             string baseText = Lang.Get($"charattribute-{stat.Key}-{stat.Value}");
@@ -158,9 +134,7 @@ namespace multiclassreborn
             return $"{baseText} ({scaledValue})";
         }
 
-        /// <summary>
-        /// Flattens selected extra classes into UI stat candidates.
-        /// </summary>
+        // Collects unique trait stats from the selected extra classes.
         private static List<TraitStatLine> GatherExtraStatLines(MulticlassRebornModSystem classSystem, IEnumerable<string> extraClassCodes)
         {
             List<TraitStatLine> candidates = new List<TraitStatLine>();
@@ -187,9 +161,7 @@ namespace multiclassreborn
             return candidates;
         }
 
-        /// <summary>
-        /// Tests whether config keeps one stat line for this trait polarity.
-        /// </summary>
+        // Applies the matching duplicate rule for the trait polarity.
         private static bool ShouldKeepOnlyStrongest(EnumTraitType traitType, bool onlyBestPositive, bool onlyWorstNegative)
         {
             if (traitType == EnumTraitType.Positive) return onlyBestPositive;
@@ -198,17 +170,14 @@ namespace multiclassreborn
             return false;
         }
 
-        /// <summary>
-        /// Builds a stable key for one trait stat line.
-        /// </summary>
+        // Uses a compact key that cannot collide with normal trait or stat codes.
         private static string BuildStatKey(string traitCode, string statCode)
         {
             return traitCode + "\n" + statCode;
         }
 
-        /// <summary>
-        /// Scales the first numeric value inside a translated stat phrase.
-        /// </summary>
+        // Vintage Story stat lines are localized phrases, so scale the displayed number
+        // instead of rebuilding the sentence from raw stat codes.
         private static string BuildScaledStatText(string baseText, float scale)
         {
             Match match = Regex.Match(baseText, @"([+-]?\d+(?:\.\d+)?)(%)?");
@@ -221,18 +190,14 @@ namespace multiclassreborn
             return baseText.Substring(0, match.Index) + replacement + baseText.Substring(match.Index + match.Length);
         }
 
-        /// <summary>
-        /// Keeps scaled display numbers compact and signed when useful.
-        /// </summary>
+        // Keeps positive values signed so bonuses stay obvious in compact text.
         private static string FormatScaledNumber(double value)
         {
             string sign = value > 0 ? "+" : "";
             return sign + value.ToString("0.###", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>
-        /// Removes repeated stat labels from the scaled value when possible.
-        /// </summary>
+        // Pulls out the numeric part for the parenthesized scaled value.
         private static string BuildCompactScaledValue(string scaledText)
         {
             Match numericValue = Regex.Match(scaledText, @"[+-]?\d+(?:\.\d+)?%?");
@@ -241,17 +206,13 @@ namespace multiclassreborn
             return scaledText;
         }
 
-        /// <summary>
-        /// Measures rendered text width with the active GUI font.
-        /// </summary>
+        // Uses Cairo font metrics instead of guessing character widths.
         private static double MeasureTextWidth(string text, CairoFont font)
         {
             return font.GetTextExtents(text).Width;
         }
 
-        /// <summary>
-        /// Splits VTML into measured lines without counting tags as text.
-        /// </summary>
+        // Wraps VTML text while keeping tags attached to their visible words.
         private static List<string> WrapVtmlText(string text, CairoFont font, double firstWidth, double nextWidth)
         {
             List<string> lines = new List<string>();
@@ -313,9 +274,7 @@ namespace multiclassreborn
             return lines.Count == 0 ? new List<string> { StripVtml(text) } : lines;
         }
 
-        /// <summary>
-        /// Closes active VTML tags before a line break and reopens them after.
-        /// </summary>
+        // Close and reopen active VTML tags so a wrapped link or font tag stays valid.
         private static void FinishWrappedLine(List<string> lines, StringBuilder line, List<VtmlTag> activeTags)
         {
             if (line.Length == 0) return;
@@ -334,9 +293,7 @@ namespace multiclassreborn
             }
         }
 
-        /// <summary>
-        /// Tracks open VTML tags so wrapped links remain valid.
-        /// </summary>
+        // Updates the active tag stack as raw VTML tokens are processed.
         private static void TrackActiveTag(List<VtmlTag> activeTags, string tag)
         {
             string name = GetTagName(tag);
@@ -358,42 +315,32 @@ namespace multiclassreborn
             activeTags.Add(new VtmlTag(name, tag));
         }
 
-        /// <summary>
-        /// Gets a VTML tag name from a raw tag token.
-        /// </summary>
+        // Extracts a VTML tag name from an opening or closing token.
         private static string GetTagName(string tag)
         {
             Match match = Regex.Match(tag, @"^</?\s*([a-zA-Z0-9]+)");
             return match.Success ? match.Groups[1].Value : "";
         }
 
-        /// <summary>
-        /// Tests whether a token is a VTML tag.
-        /// </summary>
+        // Detects tokenized VTML tags.
         private static bool IsVtmlTag(string part)
         {
             return part.StartsWith("<", StringComparison.Ordinal) && part.EndsWith(">", StringComparison.Ordinal);
         }
 
-        /// <summary>
-        /// Tests VTML line break tags.
-        /// </summary>
+        // Detects VTML line breaks in both short and explicit forms.
         private static bool IsLineBreakTag(string tag)
         {
             return Regex.IsMatch(tag, @"^<\s*br\s*/?\s*>$", RegexOptions.IgnoreCase);
         }
 
-        /// <summary>
-        /// Tests punctuation that should hug the previous word or link.
-        /// </summary>
+        // Keeps punctuation attached to the previous visible word.
         private static bool IsTrailingPunctuation(string text)
         {
             return Regex.IsMatch(text, @"^[,.;:!?]+$");
         }
 
-        /// <summary>
-        /// Returns the vanilla color used for trait polarity.
-        /// </summary>
+        // Maps trait polarity to vanilla-style display colors.
         private static string GetTraitColor(Trait trait)
         {
             if (trait.Type == EnumTraitType.Negative) return "#ff8484";
@@ -402,9 +349,7 @@ namespace multiclassreborn
             return "#ffffff";
         }
 
-        /// <summary>
-        /// Provides a readable fallback for missing localization entries.
-        /// </summary>
+        // Turns missing localization codes into readable fallback labels.
         private static string CapitalizeCode(string code)
         {
             if (string.IsNullOrWhiteSpace(code)) return "";
@@ -418,11 +363,13 @@ namespace multiclassreborn
             return string.Join(" ", parts);
         }
 
+        // Tracks tags that need reopening when a VTML line wraps.
         private sealed class VtmlTag
         {
             internal readonly string Name;
             internal readonly string OpeningTag;
 
+            // Stores the tag name and original opening text for later reopening.
             internal VtmlTag(string name, string openingTag)
             {
                 Name = name;
@@ -430,6 +377,7 @@ namespace multiclassreborn
             }
         }
 
+        // Minimal stat candidate used by the dialog and traits tab previews.
         private sealed class TraitStatLine
         {
             internal readonly string Key;
@@ -437,6 +385,7 @@ namespace multiclassreborn
             internal readonly double RawValue;
             internal readonly EnumTraitType TraitType;
 
+            // Captures the values needed for duplicate-stat filtering.
             internal TraitStatLine(string traitCode, string statCode, double rawValue, EnumTraitType traitType)
             {
                 Key = BuildStatKey(traitCode, statCode);

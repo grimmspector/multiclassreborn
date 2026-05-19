@@ -13,9 +13,7 @@ using Vintagestory.GameContent;
 
 namespace multiclassreborn
 {
-    /// <summary>
-    /// Replaces the vanilla Traits tab with wrapped, scrollable class text.
-    /// </summary>
+    // Replaces the vanilla Traits tab with a scrollable class summary.
     [HarmonyPatch]
     internal static class CharacterTraitsTabPatch
     {
@@ -29,9 +27,8 @@ namespace multiclassreborn
         private static double traitsTextWidth;
         private static string lastTraitText;
 
-        /// <summary>
-        /// Replaces the fixed vanilla trait text with clipped scrollable text.
-        /// </summary>
+        // Vanilla trait text clips long multiclass descriptions; this keeps the same tab
+        // but gives the text a measured scroll area.
         [HarmonyPatch("Vintagestory.GameContent.CharacterSystem", "composeTraitsTab")]
         [HarmonyPrefix]
         private static bool ComposeScrollableTraitsTab(GuiComposer compo)
@@ -60,9 +57,7 @@ namespace multiclassreborn
             return false;
         }
 
-        /// <summary>
-        /// Rebuilds the Traits tab text after class changes while the screen is open.
-        /// </summary>
+        // Refreshes the already-open character window after a class command changes state.
         internal static void RefreshOpenTraitsTab()
         {
             if (traitsComposer == null || traitsFont == null) return;
@@ -82,9 +77,7 @@ namespace multiclassreborn
             lastTraitText = traitText;
         }
 
-        /// <summary>
-        /// Scrolls the traits text inside the clipped tab area.
-        /// </summary>
+        // Moves the richtext inside the clipped traits area.
         private static void OnTraitsScroll(float dy)
         {
             ElementBounds bounds = traitsComposer?.GetRichtext("multiclassTraitsText")?.Bounds;
@@ -94,17 +87,13 @@ namespace multiclassreborn
             bounds.CalcWorldBounds();
         }
 
-        /// <summary>
-        /// Builds the shared traits tab font.
-        /// </summary>
+        // Uses the vanilla detail font with a little extra line spacing.
         private static CairoFont CreateTraitsFont()
         {
             return CairoFont.WhiteDetailText().WithLineHeightMultiplier(1.15);
         }
 
-        /// <summary>
-        /// Builds the complete Traits tab text.
-        /// </summary>
+        // Builds the base and extra class sections shown in the patched Traits tab.
         private static string BuildTraitTabText(CairoFont font, double maxWidth)
         {
             MulticlassRebornModSystem classSystem = MulticlassRebornModSystem.ClientInstance;
@@ -147,9 +136,7 @@ namespace multiclassreborn
             return text.ToString();
         }
 
-        /// <summary>
-        /// Writes trait names and wrapped bullet details for one class.
-        /// </summary>
+        // Adds trait names, stat lines, and descriptions for one class.
         private static void AppendTraitDetails(StringBuilder text, CharacterClass classDef, MulticlassRebornModSystem classSystem, RebornPlayerClassState state, CairoFont font, double maxWidth, bool showScaledValues, HashSet<string> appliedStatKeys)
         {
             if (classDef.Traits == null || classDef.Traits.Length == 0)

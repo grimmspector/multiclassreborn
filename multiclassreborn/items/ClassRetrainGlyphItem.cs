@@ -6,8 +6,10 @@ using Vintagestory.API.Common.Entities;
 
 namespace multiclassreborn.items
 {
+    // Right-click glyphstone that opens the retraining flow on the client.
     internal class ClassRetrainGlyphItem : Item
     {
+        // Actual consumption happens later through the confirmed server command.
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handHandling)
         {
             base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling);
@@ -23,6 +25,7 @@ namespace multiclassreborn.items
             classSystem?.OpenClassDialogForRetraining();
         }
 
+        // Shows the right-click help text in the item interaction overlay.
         public override WorldInteraction[] GetHeldInteractionHelp(ItemSlot inSlot)
         {
             return new WorldInteraction[]

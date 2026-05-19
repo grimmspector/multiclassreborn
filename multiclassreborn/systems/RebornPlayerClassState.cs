@@ -7,6 +7,7 @@ using Vintagestory.API.Datastructures;
 
 namespace multiclassreborn.systems
 {
+    // Wrapper around watched attributes for persistent per-player class state.
     internal class RebornPlayerClassState
     {
         private const string StateTreeCode = "multiclassreborn";
@@ -22,9 +23,13 @@ namespace multiclassreborn.systems
         private const string OnlyBestPositiveKey = "onlyBestPositive";
         private const string OnlyWorstNegativeKey = "onlyWorstNegative";
         private const string SlotsInitializedKey = "slotsInitialized";
+        private const string ConfigReviewedKey = "configReviewed";
+        private const string ReviewedRequireGlyphsKey = "reviewedRequireTokens";
+        private const string ReviewedMaxExtraClassesKey = "reviewedMaxExtraClasses";
 
         private readonly EntityPlayer entity;
 
+        // Wraps one player's watched attribute tree and runs legacy migration.
         public RebornPlayerClassState(EntityPlayer entity)
         {
             this.entity = entity;
@@ -147,11 +152,39 @@ namespace multiclassreborn.systems
             }
         }
 
+        public bool ConfigReviewed
+        {
+            get => Tree.GetBool(ConfigReviewedKey, false);
+            set
+            {
+                Tree.SetBool(ConfigReviewedKey, value);
+                MarkTreePath(ConfigReviewedKey);
+            }
+        }
+
+        public bool ReviewedRequireGlyphs
+        {
+            get => Tree.GetBool(ReviewedRequireGlyphsKey, false);
+            set
+            {
+                Tree.SetBool(ReviewedRequireGlyphsKey, value);
+                MarkTreePath(ReviewedRequireGlyphsKey);
+            }
+        }
+
+        public int ReviewedMaxExtraClasses
+        {
+            get => Tree.GetInt(ReviewedMaxExtraClassesKey, 0);
+            set
+            {
+                Tree.SetInt(ReviewedMaxExtraClassesKey, value);
+                MarkTreePath(ReviewedMaxExtraClassesKey);
+            }
+        }
+
         private ITreeAttribute Tree => entity.WatchedAttributes.GetOrAddTreeAttribute(StateTreeCode);
 
-        /// <summary>
-        /// Copies original multiclass player data into the Reborn domain once.
-        /// </summary>
+        // Keep the old "multiclass" tree intact; copy only missing values into Reborn.
         private void MigrateLegacyState()
         {
             ITreeAttribute legacyTree = entity.WatchedAttributes.GetTreeAttribute(LegacyStateTreeCode);
@@ -168,11 +201,12 @@ namespace multiclassreborn.systems
             CopyLegacyBool(legacyTree, OnlyBestPositiveKey);
             CopyLegacyBool(legacyTree, OnlyWorstNegativeKey);
             CopyLegacyBool(legacyTree, SlotsInitializedKey);
+            CopyLegacyBool(legacyTree, ConfigReviewedKey);
+            CopyLegacyBool(legacyTree, ReviewedRequireGlyphsKey);
+            CopyLegacyInt(legacyTree, ReviewedMaxExtraClassesKey);
         }
 
-        /// <summary>
-        /// Imports legacy string arrays without overwriting current Reborn data.
-        /// </summary>
+        // Copies a legacy string array only when Reborn has no value yet.
         private void CopyLegacyStringArray(ITreeAttribute legacyTree, string key)
         {
             if (Tree[key] != null || legacyTree[key] == null) return;
@@ -184,9 +218,7 @@ namespace multiclassreborn.systems
             MarkTreePath(key);
         }
 
-        /// <summary>
-        /// Imports a legacy integer only when the current key is absent.
-        /// </summary>
+        // Copies a legacy integer only when Reborn has no value yet.
         private void CopyLegacyInt(ITreeAttribute legacyTree, string key)
         {
             if (Tree[key] != null || legacyTree[key] == null) return;
@@ -195,9 +227,7 @@ namespace multiclassreborn.systems
             MarkTreePath(key);
         }
 
-        /// <summary>
-        /// Imports a legacy boolean only when the current key is absent.
-        /// </summary>
+        // Copies a legacy boolean only when Reborn has no value yet.
         private void CopyLegacyBool(ITreeAttribute legacyTree, string key)
         {
             if (Tree[key] != null || legacyTree[key] == null) return;
@@ -206,9 +236,7 @@ namespace multiclassreborn.systems
             MarkTreePath(key);
         }
 
-        /// <summary>
-        /// Imports a legacy float only when the current key is absent.
-        /// </summary>
+        // Copies a legacy float only when Reborn has no value yet.
         private void CopyLegacyFloat(ITreeAttribute legacyTree, string key)
         {
             if (Tree[key] != null || legacyTree[key] == null) return;
@@ -217,10 +245,7 @@ namespace multiclassreborn.systems
             MarkTreePath(key);
         }
 
-        /// <summary>
-        /// Marks one nested Reborn state path dirty so the client receives
-        /// fresh slot and class data without waiting for a full entity refresh.
-        /// </summary>
+        // Mark the nested path; marking only the root can leave the client dialog stale.
         private void MarkTreePath(string key)
         {
             entity.WatchedAttributes.MarkPathDirty($"{StateTreeCode}/{key}");

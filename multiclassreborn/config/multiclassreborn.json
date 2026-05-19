@@ -26,6 +26,9 @@
   // Maximum number of extra class slots a player can have.
   "MaxExtraClasses": 3,
 
+  // Removes learned extra classes above MaxExtraClasses after that value changes.
+  "DropExtraClassesOverMax": false,
+
   // Requires glyphstones for adding slots and forgetting classes.
   "RequireTokens": false,
 
