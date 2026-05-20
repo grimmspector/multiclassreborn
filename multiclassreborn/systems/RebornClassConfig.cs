@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using Newtonsoft.Json;
 using Vintagestory.API.Common;
+using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 
 #nullable disable
@@ -53,6 +54,12 @@ namespace multiclassreborn.systems
         // Aptitude Glyphstones granted on first join when RequireTokens is true.
         public int StartingAptitudeTokens;
 
+        private const int MinMaxExtraClasses = 0;
+        private const int MaxMaxExtraClasses = 32;
+        private const int MinStartingAptitudeTokens = 0;
+        private const int MaxStartingAptitudeTokens = 64;
+        private const float MinExtraClassScale = 0f;
+        private const float MaxExtraClassScale = 3f;
         private const string ConfigFileName = "multiclassreborn.json";
         private const string LegacyConfigFileName = "multiclass.json";
 
@@ -68,16 +75,19 @@ namespace multiclassreborn.systems
             {
                 if (!File.Exists(configPath))
                 {
-                    RebornClassConfig initialConfig = LoadLegacyConfig(legacyConfigPath) ?? new RebornClassConfig();
+                    RebornClassConfig initialConfig = LoadLegacyConfig(legacyConfigPath, sapi) ?? new RebornClassConfig();
                     WriteCommentedConfig(configPath, initialConfig);
                 }
 
                 string configText = File.ReadAllText(configPath);
-                config = JsonConvert.DeserializeObject<RebornClassConfig>(configText);
-                if (config != null && !HasJsonComments(configText))
+                config = JsonConvert.DeserializeObject<RebornClassConfig>(configText, BuildJsonSettings(sapi));
+                if (config != null)
                 {
-                    config.ClampUnsafeValues();
-                    WriteCommentedConfig(configPath, config);
+                    bool changed = config.ClampUnsafeValues(sapi);
+                    if ((changed && LooksLikeGeneratedConfig(configText)) || !HasJsonComments(configText))
+                    {
+                        WriteCommentedConfig(configPath, config);
+                    }
                 }
             }
             catch (Exception exception)
@@ -86,29 +96,91 @@ namespace multiclassreborn.systems
             }
 
             config ??= new RebornClassConfig();
-            config.ClampUnsafeValues();
+            config.ClampUnsafeValues(sapi);
 
             return config;
         }
 
         // Reads the old multiclass config when Reborn has not created one yet.
-        private static RebornClassConfig LoadLegacyConfig(string legacyConfigPath)
+        private static RebornClassConfig LoadLegacyConfig(string legacyConfigPath, ICoreServerAPI sapi)
         {
             if (!File.Exists(legacyConfigPath)) return null;
 
             string configText = File.ReadAllText(legacyConfigPath);
-            RebornClassConfig config = JsonConvert.DeserializeObject<RebornClassConfig>(configText);
-            config?.ClampUnsafeValues();
+            RebornClassConfig config = JsonConvert.DeserializeObject<RebornClassConfig>(configText, BuildJsonSettings(sapi));
+            config?.ClampUnsafeValues(sapi);
 
             return config;
         }
 
-        // Clamps values that would create impossible slot or stat states.
-        private void ClampUnsafeValues()
+        // Keeps config values inside supported gameplay ranges.
+        private bool ClampUnsafeValues(ICoreServerAPI sapi)
         {
-            if (MaxExtraClasses < 0) MaxExtraClasses = 0;
-            if (StartingAptitudeTokens < 0) StartingAptitudeTokens = 0;
-            if (ExtraClassScale < 0f) ExtraClassScale = 0f;
+            bool changed = false;
+
+            changed |= ClampIntValue(nameof(MaxExtraClasses), ref MaxExtraClasses, MinMaxExtraClasses, MaxMaxExtraClasses, sapi);
+            changed |= ClampIntValue(nameof(StartingAptitudeTokens), ref StartingAptitudeTokens, MinStartingAptitudeTokens, MaxStartingAptitudeTokens, sapi);
+            changed |= ClampFloatValue("SecondaryScale", ref ExtraClassScale, MinExtraClassScale, MaxExtraClassScale, sapi);
+
+            return changed;
+        }
+
+        // Clamps one integer and logs the correction.
+        private static bool ClampIntValue(string key, ref int value, int min, int max, ICoreServerAPI sapi)
+        {
+            int original = value;
+            value = GameMath.Clamp(value, min, max);
+
+            if (value == original) return false;
+
+            sapi?.Logger.Warning("[Multiclass Reborn] Clamped config {0} from {1} to {2}. Valid range is {3}-{4}.", key, original, value, min, max);
+            return true;
+        }
+
+        // Clamps one float and logs the correction.
+        private static bool ClampFloatValue(string key, ref float value, float min, float max, ICoreServerAPI sapi)
+        {
+            float original = value;
+            if (float.IsNaN(value) || float.IsInfinity(value))
+            {
+                value = max;
+            }
+            else
+            {
+                value = GameMath.Clamp(value, min, max);
+            }
+
+            if (value.Equals(original)) return false;
+
+            sapi?.Logger.Warning("[Multiclass Reborn] Clamped config {0} from {1} to {2}. Valid range is {3}-{4}.",
+                key,
+                original.ToString(CultureInfo.InvariantCulture),
+                value.ToString(CultureInfo.InvariantCulture),
+                min.ToString(CultureInfo.InvariantCulture),
+                max.ToString(CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        // Allows bad individual values to fall back without discarding the whole config.
+        private static JsonSerializerSettings BuildJsonSettings(ICoreServerAPI sapi)
+        {
+            return new JsonSerializerSettings()
+            {
+                Error = (_, args) =>
+                {
+                    sapi?.Logger.Warning("[Multiclass Reborn] Could not read config value '{0}', using its default: {1}",
+                        args.ErrorContext.Path,
+                        args.ErrorContext.Error.Message);
+                    args.ErrorContext.Handled = true;
+                }
+            };
+        }
+
+        // Detects configs written by this mod so sanitized values can be persisted.
+        private static bool LooksLikeGeneratedConfig(string configText)
+        {
+            return configText?.Contains("// Allows extra-class stat bonuses to be applied.", StringComparison.Ordinal) == true
+                && configText.Contains("// Aptitude Glyphstones granted on first join", StringComparison.Ordinal);
         }
 
         // Detects hand-written comments so the config file is left alone.
@@ -128,40 +200,40 @@ namespace multiclassreborn.systems
         private static string BuildConfigText(RebornClassConfig config)
         {
             return $@"{{
-  // Allows extra-class stat bonuses to be applied.
+  // Allows extra-class stat bonuses to be applied. Default: true.
   ""AllowStats"": {JsonBool(config.AllowStatBonuses)},
 
-  // Allows extra-class recipe traits to count for recipes.
+  // Allows extra-class recipe traits to count for recipes. Default: true.
   ""AllowRecipes"": {JsonBool(config.AllowRecipeTraits)},
 
-  // Enables craftable Aptitude and Retraining Glyphstones.
+  // Enables craftable Aptitude and Retraining Glyphstones. Default: false.
   ""EnableGlyphstoneRecipes"": {JsonBool(config.EnableGlyphstoneRecipes)},
 
-  // Multiplies stat changes from extra classes before applying them.
+  // Multiplies extra-class stat changes. Valid range: 0-3. Default: 0.8.
   ""SecondaryScale"": {config.ExtraClassScale.ToString(CultureInfo.InvariantCulture)},
 
-  // Keeps only the strongest positive trait bonus per affected stat.
+  // Keeps only the strongest positive trait bonus per affected stat. Default: false.
   ""OnlyApplyBestPositiveTraitBonus"": {JsonBool(config.OnlyApplyBestPositiveTraitBonus)},
 
-  // Keeps only the harshest negative trait penalty per affected stat.
+  // Keeps only the harshest negative trait penalty per affected stat. Default: false.
   ""OnlyApplyWorstNegativeTraitPenalty"": {JsonBool(config.OnlyApplyWorstNegativeTraitPenalty)},
 
-  // Allows players to forget their main class and return to Commoner.
+  // Allows players to forget their main class and return to Commoner. Default: false.
   ""AllowForgettingBaseClass"": {JsonBool(config.AllowForgettingBaseClass)},
 
-  // Allows Commoners to choose a new main class without a glyphstone.
+  // Allows Commoners to choose a new main class without a glyphstone. Default: false.
   ""AllowCommonersChooseBaseClass"": {JsonBool(config.AllowCommonersChooseBaseClass)},
 
-  // Maximum number of extra class slots a player can have.
+  // Maximum number of extra class slots a player can have. Valid range: 0-32. Default: 3.
   ""MaxExtraClasses"": {config.MaxExtraClasses},
 
-  // Removes learned extra classes above MaxExtraClasses after that value changes.
+  // Removes learned extra classes above MaxExtraClasses after that value changes. Default: false.
   ""DropExtraClassesOverMax"": {JsonBool(config.DropExtraClassesOverMax)},
 
-  // Requires glyphstones for adding slots and forgetting classes.
+  // Requires glyphstones for adding slots and forgetting classes. Default: true.
   ""RequireTokens"": {JsonBool(config.RequireGlyphs)},
 
-  // Aptitude Glyphstones granted on first join when RequireTokens is true.
+  // Aptitude Glyphstones granted on first join. Valid range: 0-64. Default: 0.
   ""StartingAptitudeTokens"": {config.StartingAptitudeTokens}
 }}
 ";

@@ -1,37 +1,37 @@
 {
-  // Allows extra-class stat bonuses to be applied.
+  // Allows extra-class stat bonuses to be applied. Default: true.
   "AllowStats": true,
 
-  // Allows extra-class recipe traits to count for recipes.
+  // Allows extra-class recipe traits to count for recipes. Default: true.
   "AllowRecipes": true,
 
-  // Enables craftable Aptitude and Retraining Glyphstones.
+  // Enables craftable Aptitude and Retraining Glyphstones. Default: false.
   "EnableGlyphstoneRecipes": false,
 
-  // Multiplies stat changes from extra classes before applying them.
+  // Multiplies extra-class stat changes. Valid range: 0-3. Default: 0.8.
   "SecondaryScale": 0.8,
 
-  // Keeps only the strongest positive trait bonus per affected stat.
+  // Keeps only the strongest positive trait bonus per affected stat. Default: false.
   "OnlyApplyBestPositiveTraitBonus": false,
 
-  // Keeps only the harshest negative trait penalty per affected stat.
+  // Keeps only the harshest negative trait penalty per affected stat. Default: false.
   "OnlyApplyWorstNegativeTraitPenalty": false,
 
-  // Allows players to forget their main class and return to Commoner.
+  // Allows players to forget their main class and return to Commoner. Default: false.
   "AllowForgettingBaseClass": false,
 
-  // Allows Commoners to choose a new main class without a glyphstone.
+  // Allows Commoners to choose a new main class without a glyphstone. Default: false.
   "AllowCommonersChooseBaseClass": false,
 
-  // Maximum number of extra class slots a player can have.
+  // Maximum number of extra class slots a player can have. Valid range: 0-32. Default: 3.
   "MaxExtraClasses": 3,
 
-  // Removes learned extra classes above MaxExtraClasses after that value changes.
+  // Removes learned extra classes above MaxExtraClasses after that value changes. Default: false.
   "DropExtraClassesOverMax": false,
 
-  // Requires glyphstones for adding slots and forgetting classes.
+  // Requires glyphstones for adding slots and forgetting classes. Default: true.
   "RequireTokens": false,
 
-  // Aptitude Glyphstones granted on first join when RequireTokens is true.
+  // Aptitude Glyphstones granted on first join. Valid range: 0-64. Default: 0.
   "StartingAptitudeTokens": 0
 }

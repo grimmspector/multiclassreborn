@@ -125,6 +125,7 @@ namespace multiclassreborn
         {
             string baseText = Lang.Get($"charattribute-{stat.Key}-{stat.Value}");
             if (!showScaledValue) return baseText;
+            if (!ShouldScaleStat(stat.Key)) return baseText;
             if (!isApplied) return $"{baseText} (0%)";
 
             string scaledText = BuildScaledStatText(baseText, scale);
@@ -174,6 +175,19 @@ namespace multiclassreborn
         private static string BuildStatKey(string traitCode, string statCode)
         {
             return traitCode + "\n" + statCode;
+        }
+
+        // Some trait stats are discrete unlocks, thresholds, or tier values.
+        private static bool ShouldScaleStat(string statCode)
+        {
+            if (string.IsNullOrWhiteSpace(statCode)) return true;
+            if (statCode.Equals("temporalGearTLRepairCost", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.Equals("dodgeGuaranteedCooldown", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.Equals("fallDamageThreshold", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.StartsWith("can", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.IndexOf("DamageTierBonus", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            return true;
         }
 
         // Vintage Story stat lines are localized phrases, so scale the displayed number

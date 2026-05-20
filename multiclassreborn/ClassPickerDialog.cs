@@ -176,7 +176,7 @@ namespace multiclassreborn
             bool canForgetMain = isMainClass && state.AllowsBaseClassForgetting && !isCommoner;
             bool canChooseBase = isCommoner && state.AllowsCommonerBaseClassChoice && !isMainClass && !classDef.Code.Equals("commoner", StringComparison.OrdinalIgnoreCase);
 
-            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, extraClasses, state, detailBounds), detailBounds);
+            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, canChooseBase, extraClasses, state, detailBounds), detailBounds);
 
             if (pendingForgetClassCode == classDef.Code)
             {
@@ -260,13 +260,13 @@ namespace multiclassreborn
             bounds.CalcWorldBounds();
         }
 
-        // Builds the selected class preview with scaled extra-class stat values.
-        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
+        // Builds the selected class preview with scaled values only for extra classes.
+        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, bool canChooseBase, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
         {
             CairoFont font = CairoFont.WhiteSmallText();
             double maxWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
-            bool showScaledValues = !isMainClass;
-            HashSet<string> appliedStatKeys = BuildPreviewAppliedStatKeys(classDef, isMainClass, isLearned, extraClasses, state);
+            bool showScaledValues = !isMainClass && !canChooseBase;
+            HashSet<string> appliedStatKeys = BuildPreviewAppliedStatKeys(classDef, isMainClass, isLearned, canChooseBase, extraClasses, state);
             StringBuilder text = new StringBuilder();
             text.AppendLine($"<strong><font size=\"18\">{ClassTraitTextUtil.GetClassName(classDef.Code)}</font></strong>");
             text.AppendLine();
@@ -326,10 +326,11 @@ namespace multiclassreborn
             return text.ToString();
         }
 
-        // Preview the selected class as if it were learned, but only for extra classes.
-        private HashSet<string> BuildPreviewAppliedStatKeys(CharacterClass classDef, bool isMainClass, bool isLearned, List<string> extraClasses, RebornPlayerClassState state)
+        // Preview duplicate filtering only when the selected class would be learned.
+        private HashSet<string> BuildPreviewAppliedStatKeys(CharacterClass classDef, bool isMainClass, bool isLearned, bool canChooseBase, List<string> extraClasses, RebornPlayerClassState state)
         {
             if (isMainClass) return null;
+            if (canChooseBase) return null;
 
             List<string> previewClasses = new List<string>(extraClasses);
             if (!isLearned && !previewClasses.Contains(classDef.Code))

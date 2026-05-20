@@ -378,12 +378,20 @@ namespace multiclassreborn
                 return;
             }
 
-            ItemStack stack = new ItemStack(item, Config.StartingAptitudeTokens);
-            if (player.InventoryManager.TryGiveItemstack(stack)) return;
-            if (stack.StackSize <= 0) return;
+            int remainingTokens = Config.StartingAptitudeTokens;
+            int stackLimit = Math.Max(1, item.MaxStackSize);
 
-            Vec3d dropPos = player.Entity.Pos.XYZ.Add(0, 0.25, 0);
-            sapi.World.SpawnItemEntity(stack, dropPos);
+            while (remainingTokens > 0)
+            {
+                ItemStack stack = new ItemStack(item, Math.Min(remainingTokens, stackLimit));
+                remainingTokens -= stack.StackSize;
+
+                if (player.InventoryManager.TryGiveItemstack(stack)) continue;
+                if (stack.StackSize <= 0) continue;
+
+                Vec3d dropPos = player.Entity.Pos.XYZ.Add(0, 0.25, 0);
+                sapi.World.SpawnItemEntity(stack, dropPos);
+            }
         }
 
         // Adds one usable extra-class slot if the player is below the configured cap.
@@ -845,9 +853,25 @@ namespace multiclassreborn
 
             foreach (TraitStatCandidate candidate in appliedCandidates)
             {
-                float scaledValue = (float)candidate.RawValue * Config.ExtraClassScale;
+                float scaledValue = ShouldScaleStat(candidate.StatCode)
+                    ? (float)candidate.RawValue * Config.ExtraClassScale
+                    : (float)candidate.RawValue;
+
                 player.Entity.Stats.Set(candidate.StatCode, BuildCanonicalStatSourceCode(candidate.TraitCode), scaledValue, false);
             }
+        }
+
+        // Some trait stats are discrete unlocks, thresholds, or tier values.
+        private static bool ShouldScaleStat(string statCode)
+        {
+            if (string.IsNullOrWhiteSpace(statCode)) return true;
+            if (statCode.Equals("temporalGearTLRepairCost", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.Equals("dodgeGuaranteedCooldown", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.Equals("fallDamageThreshold", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.StartsWith("can", StringComparison.OrdinalIgnoreCase)) return false;
+            if (statCode.IndexOf("DamageTierBonus", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            return true;
         }
 
         // Flattens selected traits into stat candidates for filtering.

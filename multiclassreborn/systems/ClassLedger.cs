@@ -43,16 +43,18 @@ namespace multiclassreborn.systems
             }
 
             Traits = discoveredTraits;
+
+            // Replacement mods can disable vanilla classes and add enabled copies later.
             EnabledClasses = discoveredClasses
+                .Where(classDef => classDef?.Code != null && classDef.Enabled)
                 .GroupBy(classDef => classDef.Code)
-                .Select(group => group.First())
-                .Where(classDef => classDef.Enabled)
+                .Select(group => group.Last())
                 .ToList();
 
             TraitByCode = Traits
                 .Where(trait => trait?.Code != null)
                 .GroupBy(trait => trait.Code)
-                .ToDictionary(group => group.Key, group => group.First());
+                .ToDictionary(group => group.Key, group => group.Last());
 
             ClassByCode = EnabledClasses
                 .Where(classDef => classDef?.Code != null)
