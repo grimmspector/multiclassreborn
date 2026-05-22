@@ -17,6 +17,7 @@ namespace multiclassreborn.systems
         private const string UsedSlotsKey = "usedSlots";
         private const string RemovalCreditsKey = "removalSlots";
         private const string RequireGlyphsKey = "requireTokens";
+        private const string RetrainFreeKey = "retrainFree";
         private const string AllowBaseForgetKey = "allowBaseForget";
         private const string AllowCommonerBaseChoiceKey = "allowCommonerBaseChoice";
         private const string ExtraClassScaleKey = "extraClassScale";
@@ -89,6 +90,16 @@ namespace multiclassreborn.systems
             {
                 Tree.SetBool(RequireGlyphsKey, value);
                 MarkTreePath(RequireGlyphsKey);
+            }
+        }
+
+        public bool RetrainFree
+        {
+            get => Tree.GetBool(RetrainFreeKey, false);
+            set
+            {
+                Tree.SetBool(RetrainFreeKey, value);
+                MarkTreePath(RetrainFreeKey);
             }
         }
 
@@ -195,6 +206,7 @@ namespace multiclassreborn.systems
             CopyLegacyInt(legacyTree, UsedSlotsKey);
             CopyLegacyInt(legacyTree, RemovalCreditsKey);
             CopyLegacyBool(legacyTree, RequireGlyphsKey);
+            CopyLegacyBool(legacyTree, RetrainFreeKey);
             CopyLegacyBool(legacyTree, AllowBaseForgetKey);
             CopyLegacyBool(legacyTree, AllowCommonerBaseChoiceKey);
             CopyLegacyFloat(legacyTree, ExtraClassScaleKey);

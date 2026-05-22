@@ -43,6 +43,7 @@
   "multiclassreborn:message-added-extra-class": "Added extra class '{0}' (slots: {1}/{2}).",
   "multiclassreborn:message-open-retraining-confirm": "Open the Extra Classes screen and confirm Forget there.",
   "multiclassreborn:message-need-retraining-extra": "You need a Retraining Glyphstone in your hotbar before removing an extra class.",
+  "multiclassreborn:message-retraining-glyphstones-disabled": "Retraining Glyphstones are disabled because class forgetting is free.",
   "multiclassreborn:message-extra-class-not-found": "Extra class '{0}' not found.",
   "multiclassreborn:message-removed-extra-class": "Removed extra class '{0}' (slots: {1}/{2}).",
   "multiclassreborn:message-base-forgetting-disabled": "This server does not allow forgetting your base class.",

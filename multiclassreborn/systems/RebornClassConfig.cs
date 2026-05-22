@@ -51,8 +51,13 @@ namespace multiclassreborn.systems
         [JsonProperty("RequireTokens")]
         public bool RequireGlyphs;
 
+        // Makes class forgetting free while glyphstones are required for new slots.
+        public bool RetrainFree;
+
         // Aptitude Glyphstones granted on first join when RequireTokens is true.
         public int StartingAptitudeTokens;
+
+        public bool RetrainFreeApplies => RequireGlyphs && RetrainFree;
 
         private const int MinMaxExtraClasses = 0;
         private const int MaxMaxExtraClasses = 32;
@@ -232,6 +237,9 @@ namespace multiclassreborn.systems
 
   // Requires glyphstones for adding slots and forgetting classes. Default: true.
   ""RequireTokens"": {JsonBool(config.RequireGlyphs)},
+
+  // Makes class forgetting free when RequireTokens is true. Default: false.
+  ""RetrainFree"": {JsonBool(config.RetrainFree)},
 
   // Aptitude Glyphstones granted on first join. Valid range: 0-64. Default: 0.
   ""StartingAptitudeTokens"": {config.StartingAptitudeTokens}

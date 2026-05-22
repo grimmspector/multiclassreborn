@@ -5,6 +5,8 @@ using System.Text;
 using HarmonyLib;
 using multiclassreborn.items;
 using multiclassreborn.systems;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
@@ -61,7 +63,7 @@ namespace multiclassreborn
         public override void StartServerSide(ICoreServerAPI api)
         {
             sapi = api;
-            Config = RebornClassConfig.Load(api);
+            Config ??= RebornClassConfig.Load(api);
             Ledger.Reload(api);
 
             // Sync after character setup so first-join class selection cannot overwrite it.
@@ -69,7 +71,7 @@ namespace multiclassreborn
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, DropOverMax={6}, RequireGlyphs={7}, StartingAptitudeTokens={8}, BestPositiveOnly={9}, WorstNegativeOnly={10}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, DropOverMax={6}, RequireGlyphs={7}, RetrainFree={8}, StartingAptitudeTokens={9}, BestPositiveOnly={10}, WorstNegativeOnly={11}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
@@ -78,9 +80,21 @@ namespace multiclassreborn
                 Config.MaxExtraClasses,
                 Config.DropExtraClassesOverMax,
                 Config.RequireGlyphs,
+                Config.RetrainFreeApplies,
                 Config.StartingAptitudeTokens,
                 Config.OnlyApplyBestPositiveTraitBonus,
                 Config.OnlyApplyWorstNegativeTraitPenalty);
+        }
+
+        // Removes retraining glyphstone sources that are parsed from JSON assets.
+        public override void AssetsFinalize(ICoreAPI api)
+        {
+            base.AssetsFinalize(api);
+            if (api.Side != EnumAppSide.Server) return;
+            if (api is ICoreServerAPI serverApi) Config ??= RebornClassConfig.Load(serverApi);
+            if (Config?.RetrainFreeApplies != true) return;
+
+            RemoveRetrainingGlyphstoneTraderOffers(api);
         }
 
         // Loads client lookup data, GUI patches, handbook ordering, and hotkeys.
@@ -202,7 +216,7 @@ namespace multiclassreborn
                     .WithArgs(parsers.Word("playername"))
                     .WithDescription(Lang.Get("multiclassreborn:command-giveretrainglyph-description"))
                     .RequiresPrivilege(Privilege.controlserver)
-                    .HandleWith(args => RunPlayerCommand(args, player => GiveAptitudeGlyphItem(player, (string)args[0], RetrainGlyphItemCode, "item-retraining-glyphstone")))
+                    .HandleWith(args => RunPlayerCommand(args, player => GiveRetrainGlyphItem(player, (string)args[0])))
                 .EndSubCommand();
         }
 
@@ -212,7 +226,32 @@ namespace multiclassreborn
             if (!Config.EnableGlyphstoneRecipes) return;
 
             RegisterGlyphstoneRecipe("craft-aptitude-glyphstone", AptitudeGlyphItemCode, "clearquartz");
+            if (Config.RetrainFreeApplies) return;
+
             RegisterGlyphstoneRecipe("craft-retraining-glyphstone", RetrainGlyphItemCode, "gear-rusty");
+        }
+
+        // Removes the configured trader offer when retraining is free.
+        private void RemoveRetrainingGlyphstoneTraderOffers(ICoreAPI api)
+        {
+            IAsset tradeListAsset = api.Assets.TryGet(new AssetLocation("game:config/tradelists/trader-luxuries.json"), true);
+            if (tradeListAsset == null) return;
+
+            JObject tradeList = JObject.Parse(tradeListAsset.ToText());
+            if (tradeList.SelectToken("selling.list") is not JArray sellingList) return;
+
+            List<JToken> retrainingOffers = sellingList
+                .Where(token => token?["code"]?.ToString().Equals(RetrainGlyphItemCode, StringComparison.OrdinalIgnoreCase) == true)
+                .ToList();
+
+            if (retrainingOffers.Count == 0) return;
+
+            foreach (JToken retrainingOffer in retrainingOffers)
+            {
+                retrainingOffer.Remove();
+            }
+
+            tradeListAsset.Data = Encoding.UTF8.GetBytes(tradeList.ToString(Formatting.Indented));
         }
 
         // Builds one shaped recipe around the item that defines its purpose.
@@ -320,6 +359,7 @@ namespace multiclassreborn
                 : state.SlotsInitialized && state.RequiresGlyphs;
 
             state.RequiresGlyphs = Config.RequireGlyphs;
+            state.RetrainFree = Config.RetrainFreeApplies;
             state.AllowsBaseClassForgetting = Config.AllowForgettingBaseClass;
             state.AllowsCommonerBaseClassChoice = Config.AllowCommonersChooseBaseClass;
             state.ExtraClassScale = Config.ExtraClassScale;
@@ -491,7 +531,7 @@ namespace multiclassreborn
                 return;
             }
 
-            ForgetExtraClass(player, normalizedCode, Config.RequireGlyphs);
+            ForgetExtraClass(player, normalizedCode, ShouldConsumeRetrainingGlyphstone());
         }
 
         // Removes one extra class and optionally consumes a retraining glyphstone first.
@@ -535,7 +575,7 @@ namespace multiclassreborn
                 return;
             }
 
-            if (Config.RequireGlyphs && !TryConsumeRetrainingGlyphstone(player))
+            if (ShouldConsumeRetrainingGlyphstone() && !TryConsumeRetrainingGlyphstone(player))
             {
                 Tell(player, Lang.Get("multiclassreborn:message-need-retraining-base"), EnumChatType.Notification);
                 return;
@@ -545,6 +585,12 @@ namespace multiclassreborn
             player.Entity.WatchedAttributes.MarkPathDirty("characterClass");
             ReapplyClassEffects(player);
             Tell(player, Lang.Get("multiclassreborn:message-forgot-base-class"), EnumChatType.Notification);
+        }
+
+        // RetrainFree only waives the removal cost on token-gated worlds.
+        private bool ShouldConsumeRetrainingGlyphstone()
+        {
+            return Config.RequireGlyphs && !Config.RetrainFreeApplies;
         }
 
         // Lets Commoners promote a chosen class to their main class when configured.
@@ -817,6 +863,18 @@ namespace multiclassreborn
 
             Tell(admin, Lang.Get("multiclassreborn:message-gave-item", Lang.Get(displayNameKey), target.PlayerName), EnumChatType.Notification);
             Tell(target, Lang.Get("multiclassreborn:message-received-item", Lang.Get(displayNameKey)), EnumChatType.Notification);
+        }
+
+        // Keeps retraining glyphstones unavailable when forgetting has no token cost.
+        private void GiveRetrainGlyphItem(IServerPlayer admin, string playerName)
+        {
+            if (Config.RetrainFreeApplies)
+            {
+                Tell(admin, Lang.Get("multiclassreborn:message-retraining-glyphstones-disabled"), EnumChatType.Notification);
+                return;
+            }
+
+            GiveAptitudeGlyphItem(admin, playerName, RetrainGlyphItemCode, "item-retraining-glyphstone");
         }
 
         // Rebuilds all extra-class stat and recipe effects from current state.

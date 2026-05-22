@@ -45,18 +45,31 @@ namespace multiclassreborn
         // Adds one indented bullet that can wrap inside narrow panes.
         internal static void AppendWrappedBullet(StringBuilder text, string content, CairoFont font, double maxWidth)
         {
-            AppendWrappedLine(text, "    \u2022 ", "      ", content, font, maxWidth);
+            AppendWrappedBullet(text, content, font, maxWidth, 1);
+        }
+
+        // Adds one indented bullet with a caller-specific wrap width adjustment.
+        internal static void AppendWrappedBullet(StringBuilder text, string content, CairoFont font, double maxWidth, double wrapWidthMultiplier)
+        {
+            AppendWrappedLine(text, "    \u2022 ", "      ", content, font, maxWidth, wrapWidthMultiplier);
         }
 
         // Keep VTML tags out of the width math, otherwise rich trait text wraps early.
         internal static void AppendWrappedLine(StringBuilder text, string prefix, string continuationPrefix, string content, CairoFont font, double maxWidth)
         {
+            AppendWrappedLine(text, prefix, continuationPrefix, content, font, maxWidth, 1);
+        }
+
+        // Keep VTML tags out of the width math, otherwise rich trait text wraps early.
+        internal static void AppendWrappedLine(StringBuilder text, string prefix, string continuationPrefix, string content, CairoFont font, double maxWidth, double wrapWidthMultiplier)
+        {
             string cleanContent = StripVtml(content);
             if (string.IsNullOrWhiteSpace(cleanContent)) return;
 
-            double wrapSafety = Math.Max(48, maxWidth * 0.12);
-            double firstWidth = Math.Max(1, maxWidth - MeasureTextWidth(prefix, font) - wrapSafety);
-            double nextWidth = Math.Max(1, maxWidth - MeasureTextWidth(continuationPrefix, font) - wrapSafety);
+            double adjustedMaxWidth = maxWidth * Math.Max(1, wrapWidthMultiplier);
+            double wrapSafety = Math.Min(72, Math.Max(48, maxWidth * 0.06));
+            double firstWidth = Math.Max(1, adjustedMaxWidth - MeasureTextWidth(prefix, font) - wrapSafety);
+            double nextWidth = Math.Max(1, adjustedMaxWidth - MeasureTextWidth(continuationPrefix, font) - wrapSafety);
             List<string> lines = WrapVtmlText(content, font, firstWidth, nextWidth);
 
             for (int i = 0; i < lines.Count; i++)

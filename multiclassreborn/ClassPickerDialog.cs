@@ -18,6 +18,28 @@ namespace multiclassreborn
     // Client-side dialog for learning, previewing, and forgetting extra classes.
     internal class ClassPickerDialog : GuiDialog
     {
+        private const double MinimumDialogWidth = 760;
+        private const double AbsoluteMinimumDialogWidth = 620;
+        private const double MinimumDialogContentHeight = 560;
+        private const double AbsoluteMinimumDialogContentHeight = 460;
+        private const double MaximumDialogWidth = 1220;
+        private const double MaximumDialogContentHeight = 700;
+        private const double DialogWidthScreenFraction = 0.52;
+        private const double DialogHeightScreenFraction = 0.68;
+        private const double MaximumDialogPixelWidthFraction = 0.68;
+        private const double MaximumDialogPixelHeightFraction = 0.82;
+        private const double PreferredLeftPixelFraction = 0.33;
+        private const double RightHudPixelReserveFraction = 0.18;
+        private const double MinimumRightHudPixelReserve = 280;
+        private const double DialogScreenEdgePadding = 18;
+        private const double ClassListWidth = 205;
+        private const double DetailMargin = 14;
+        private const double ActionHeight = 30;
+        private const double ActionTopPadding = 15;
+        private const double ListButtonHeight = 30;
+        private const double ClassRowHeight = 30;
+        private const double WideDetailWrapThreshold = 650;
+        private const double WideDetailWrapMultiplier = 1.25;
         private const double DetailScrollbarWidth = 14;
         private const double DetailScrollbarPadding = 4;
         private const string RetrainingGlyphItemCode = "multiclassreborn:retraining-glyphstone";
@@ -29,6 +51,8 @@ namespace multiclassreborn
         private string pendingForgetClassCode;
         private bool openedForRetraining;
         private int pageIndex;
+        private int lastFrameWidth;
+        private int lastFrameHeight;
 
         public override string ToggleKeyCombinationCode => "multiclassgui";
 
@@ -91,12 +115,21 @@ namespace multiclassreborn
                 selectedClassCode = classList[0].Code;
             }
 
-            ElementBounds dialogBounds = ElementStdBounds.AutosizedMainDialog.WithAlignment(EnumDialogArea.CenterMiddle);
-            ElementBounds backgroundBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 760, 560);
-            ElementBounds listBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 560);
-            ElementBounds detailPanelBounds = ElementBounds.Fixed(230, GuiStyle.TitleBarHeight, 530, 560);
-            ElementBounds detailBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 5, 490, 505);
-            ElementBounds actionBounds = ElementBounds.Fixed(250, GuiStyle.TitleBarHeight + 520, 490, 30);
+            double contentWidth = CalculateDialogWidth();
+            double contentHeight = CalculateDialogContentHeight();
+            double detailPanelWidth = contentWidth - ClassListWidth;
+            double detailX = ClassListWidth + DetailMargin;
+            double detailWidth = detailPanelWidth - (DetailMargin * 2);
+            double detailHeight = contentHeight - ActionHeight - ActionTopPadding - 10;
+
+            ElementBounds dialogBounds = ElementStdBounds.AutosizedMainDialog
+                .WithAlignment(EnumDialogArea.CenterMiddle)
+                .WithFixedAlignmentOffset(CalculateDialogXOffset(contentWidth), 0);
+            ElementBounds backgroundBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, contentWidth, contentHeight);
+            ElementBounds listBounds = ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, ClassListWidth, contentHeight);
+            ElementBounds detailPanelBounds = ElementBounds.Fixed(ClassListWidth, GuiStyle.TitleBarHeight, detailPanelWidth, contentHeight);
+            ElementBounds detailBounds = ElementBounds.Fixed(detailX, GuiStyle.TitleBarHeight + 5, detailWidth, detailHeight);
+            ElementBounds actionBounds = ElementBounds.Fixed(detailX, GuiStyle.TitleBarHeight + detailHeight + ActionTopPadding, detailWidth, ActionHeight);
 
             SingleComposer = clientApi.Gui
                 .CreateCompo("multiclass-reborn-picker", dialogBounds)
@@ -104,12 +137,74 @@ namespace multiclassreborn
                 .AddDialogTitleBar(BuildTitle(state), () => TryClose())
                 .BeginChildElements();
 
-            AddClassButtons(classList, listBounds, mainClass, extraClasses);
+            AddClassButtons(classList, listBounds, contentHeight, mainClass, extraClasses);
             SingleComposer.AddInset(detailPanelBounds, 2);
             AddClassDetails(detailBounds, actionBounds, mainClass, extraClasses, state);
 
             SingleComposer.EndChildElements();
             SingleComposer.Compose();
+            lastFrameWidth = clientApi.Render.FrameWidth;
+            lastFrameHeight = clientApi.Render.FrameHeight;
+        }
+
+        // Rebuilds while open so a window resize cannot strand controls off-screen.
+        public override void OnRenderGUI(float deltaTime)
+        {
+            if (lastFrameWidth != clientApi.Render.FrameWidth || lastFrameHeight != clientApi.Render.FrameHeight)
+            {
+                ComposeDialog();
+            }
+
+            base.OnRenderGUI(deltaTime);
+        }
+
+        // Expands the picker on wide displays while preserving the proven compact layout.
+        private double CalculateDialogWidth()
+        {
+            double guiScale = GuiElement.scaled(1);
+            double guiWidth = clientApi.Render.FrameWidth / guiScale;
+            double screenSafeMaximum = Math.Max(1, (clientApi.Render.FrameWidth - (DialogScreenEdgePadding * 2)) / guiScale);
+            double pixelLimitedMaximum = clientApi.Render.FrameWidth * MaximumDialogPixelWidthFraction / guiScale;
+            double preferredLeft = clientApi.Render.FrameWidth * PreferredLeftPixelFraction;
+            double rightReserve = Math.Max(MinimumRightHudPixelReserve, clientApi.Render.FrameWidth * RightHudPixelReserveFraction);
+            double preferredRightSafeMaximum = (clientApi.Render.FrameWidth - preferredLeft - rightReserve) / guiScale;
+            double maximumWidth = Math.Min(Math.Min(MaximumDialogWidth, pixelLimitedMaximum), screenSafeMaximum);
+            if (preferredRightSafeMaximum >= MinimumDialogWidth)
+            {
+                maximumWidth = Math.Min(maximumWidth, preferredRightSafeMaximum);
+            }
+
+            double minimumWidth = Math.Min(MinimumDialogWidth, maximumWidth);
+
+            return GameMath.Clamp(guiWidth * DialogWidthScreenFraction, minimumWidth, maximumWidth);
+        }
+
+        // Uses more vertical room when available without overflowing smaller screens.
+        private double CalculateDialogContentHeight()
+        {
+            double guiScale = GuiElement.scaled(1);
+            double guiHeight = clientApi.Render.FrameHeight / guiScale;
+            double pixelLimitedMaximum = clientApi.Render.FrameHeight * MaximumDialogPixelHeightFraction / guiScale;
+            double maximumHeight = Math.Min(MaximumDialogContentHeight, pixelLimitedMaximum);
+            double minimumHeight = Math.Min(MinimumDialogContentHeight, Math.Max(AbsoluteMinimumDialogContentHeight, maximumHeight));
+
+            return GameMath.Clamp(guiHeight * DialogHeightScreenFraction, minimumHeight, maximumHeight);
+        }
+
+        // Nudges right when possible to reduce character-window overlap without hitting the HUD.
+        private double CalculateDialogXOffset(double contentWidth)
+        {
+            double guiScale = GuiElement.scaled(1);
+            double dialogPixelWidth = contentWidth * guiScale;
+            double centeredLeft = (clientApi.Render.FrameWidth - dialogPixelWidth) / 2;
+            double preferredLeft = clientApi.Render.FrameWidth * PreferredLeftPixelFraction;
+            double rightReserve = Math.Max(MinimumRightHudPixelReserve, clientApi.Render.FrameWidth * RightHudPixelReserveFraction);
+            double furthestSafeLeft = clientApi.Render.FrameWidth - dialogPixelWidth - rightReserve;
+            double preferredTargetLeft = Math.Max(centeredLeft, Math.Min(preferredLeft, furthestSafeLeft));
+            double maximumLeft = Math.Max(DialogScreenEdgePadding, clientApi.Render.FrameWidth - dialogPixelWidth - DialogScreenEdgePadding);
+            double targetLeft = GameMath.Clamp(preferredTargetLeft, DialogScreenEdgePadding, maximumLeft);
+
+            return (targetLeft - centeredLeft) / guiScale;
         }
 
         // Shows slot usage in the title for both dialog modes.
@@ -121,15 +216,15 @@ namespace multiclassreborn
         }
 
         // Adds the paged class list on the left side of the dialog.
-        private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds, string mainClass, List<string> extraClasses)
+        private void AddClassButtons(List<CharacterClass> classList, ElementBounds listBounds, double contentHeight, string mainClass, List<string> extraClasses)
         {
-            int rowsPerPage = 16;
+            int rowsPerPage = Math.Max(1, (int)Math.Floor((contentHeight - 70) / ClassRowHeight));
             int pageCount = Math.Max(1, (int)Math.Ceiling(classList.Count / (double)rowsPerPage));
             pageIndex = Math.Min(pageIndex, pageCount - 1);
 
             SingleComposer.AddInset(listBounds, 2);
-            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-previous"), OnPreviousPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, 230, 30), EnumButtonStyle.Small, "previousPage");
-            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-next"), OnNextPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight + 530, 230, 30), EnumButtonStyle.Small, "nextPage");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-previous"), OnPreviousPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight, ClassListWidth, ListButtonHeight), EnumButtonStyle.Small, "previousPage");
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-next"), OnNextPage, ElementBounds.Fixed(0, GuiStyle.TitleBarHeight + contentHeight - ListButtonHeight, ClassListWidth, ListButtonHeight), EnumButtonStyle.Small, "nextPage");
 
             double y = GuiStyle.TitleBarHeight + 35;
             foreach (CharacterClass classDef in classList.Skip(pageIndex * rowsPerPage).Take(rowsPerPage))
@@ -137,8 +232,8 @@ namespace multiclassreborn
                 string label = BuildClassButtonLabel(classDef.Code, mainClass, extraClasses);
                 CairoFont buttonFont = BuildClassButtonFont(classDef.Code, mainClass, extraClasses);
                 string buttonKey = "class-" + classDef.Code;
-                SingleComposer.AddButton(label, () => SelectClass(classDef.Code), ElementBounds.Fixed(0, y, 230, 30), buttonFont, EnumButtonStyle.Small, buttonKey);
-                y += 30;
+                SingleComposer.AddButton(label, () => SelectClass(classDef.Code), ElementBounds.Fixed(0, y, ClassListWidth, ClassRowHeight), buttonFont, EnumButtonStyle.Small, buttonKey);
+                y += ClassRowHeight;
             }
         }
 
@@ -223,8 +318,10 @@ namespace multiclassreborn
         // Requires a second click before sending the destructive forget command.
         private void AddForgetConfirmation(ElementBounds actionBounds, CharacterClass classDef, bool isMainClass, RebornPlayerClassState state)
         {
-            ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, 235, 30);
-            ElementBounds forgetBounds = ElementBounds.Fixed(actionBounds.fixedX + 255, actionBounds.fixedY, 235, 30);
+            double buttonGap = 20;
+            double buttonWidth = Math.Max(120, (actionBounds.fixedWidth - buttonGap) / 2);
+            ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, buttonWidth, 30);
+            ElementBounds forgetBounds = ElementBounds.Fixed(actionBounds.fixedX + buttonWidth + buttonGap, actionBounds.fixedY, buttonWidth, 30);
 
             SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cancel"), CancelForget, cancelBounds, EnumButtonStyle.Small, "cancelForget");
             SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => SendClassCommand("confirmforget", classDef.Code), forgetBounds, EnumButtonStyle.Normal, "confirmForget");
@@ -265,6 +362,7 @@ namespace multiclassreborn
         {
             CairoFont font = CairoFont.WhiteSmallText();
             double maxWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
+            double wrapWidthMultiplier = CalculateDetailWrapWidthMultiplier(maxWidth);
             bool showScaledValues = !isMainClass && !canChooseBase;
             HashSet<string> appliedStatKeys = BuildPreviewAppliedStatKeys(classDef, isMainClass, isLearned, canChooseBase, extraClasses, state);
             StringBuilder text = new StringBuilder();
@@ -311,7 +409,7 @@ namespace multiclassreborn
                     foreach (KeyValuePair<string, double> stat in trait.Attributes)
                     {
                         bool isApplied = ClassTraitTextUtil.IsAppliedExtraStat(appliedStatKeys, traitCode, stat.Key);
-                        ClassTraitTextUtil.AppendWrappedBullet(text, ClassTraitTextUtil.BuildStatText(stat, state.ExtraClassScale, showScaledValues, isApplied), font, maxWidth);
+                        ClassTraitTextUtil.AppendWrappedBullet(text, ClassTraitTextUtil.BuildStatText(stat, state.ExtraClassScale, showScaledValues, isApplied), font, maxWidth, wrapWidthMultiplier);
                     }
                 }
 
@@ -319,11 +417,20 @@ namespace multiclassreborn
                 string description = Lang.GetIfExists(descriptionKey);
                 if (ClassTraitTextUtil.HasVisibleLocalizedText(description, descriptionKey))
                 {
-                    ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth);
+                    ClassTraitTextUtil.AppendWrappedBullet(text, description, font, maxWidth, wrapWidthMultiplier);
                 }
             }
 
             return text.ToString();
+        }
+
+        // Large picker panes have extra visual room that Cairo measures conservatively.
+        private static double CalculateDetailWrapWidthMultiplier(double maxWidth)
+        {
+            if (maxWidth <= WideDetailWrapThreshold) return 1;
+
+            double wideRoom = Math.Min(1, (maxWidth - WideDetailWrapThreshold) / WideDetailWrapThreshold);
+            return 1 + ((WideDetailWrapMultiplier - 1) * wideRoom);
         }
 
         // Preview duplicate filtering only when the selected class would be learned.
@@ -414,7 +521,7 @@ namespace multiclassreborn
             if (state.UsedSlots >= state.AvailableSlots) return false;
             if (state.ExtraClasses.Count == 0) return true;
 
-            return state.RequiresGlyphs && !ClientHasRetrainingGlyphstone();
+            return state.RequiresGlyphs && !state.RetrainFree && !ClientHasRetrainingGlyphstone();
         }
 
         // Checks the client hotbar mirror before keeping the retraining view open.

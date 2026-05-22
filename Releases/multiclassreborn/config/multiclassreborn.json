@@ -32,6 +32,9 @@
   // Requires glyphstones for adding slots and forgetting classes. Default: true.
   "RequireTokens": false,
 
+  // Makes class forgetting free when RequireTokens is true. Default: false.
+  "RetrainFree": false,
+
   // Aptitude Glyphstones granted on first join. Valid range: 0-64. Default: 0.
   "StartingAptitudeTokens": 0
 }
