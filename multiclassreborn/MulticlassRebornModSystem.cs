@@ -398,8 +398,9 @@ namespace multiclassreborn
         internal bool TryGrantClassSlot(IServerPlayer player)
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
+            TrimUnusedSlotsOverConfiguredMax(state);
 
-            if (state.AvailableSlots >= Config.MaxExtraClasses)
+            if (state.UsedSlots >= Config.MaxExtraClasses || state.AvailableSlots >= Config.MaxExtraClasses)
             {
                 Tell(player, Lang.Get("multiclassreborn:message-max-class-slots", Config.MaxExtraClasses), EnumChatType.Notification);
                 return false;
@@ -411,11 +412,21 @@ namespace multiclassreborn
             return true;
         }
 
+        // Preserves occupied classes while removing unused capacity above the current config.
+        private void TrimUnusedSlotsOverConfiguredMax(RebornPlayerClassState state)
+        {
+            int availableSlots = Math.Max(state.UsedSlots, Math.Min(state.AvailableSlots, Config.MaxExtraClasses));
+            if (state.AvailableSlots == availableSlots) return;
+
+            state.AvailableSlots = availableSlots;
+        }
+
         // Learns one extra class after validating slots, duplicates, and class existence.
         internal void LearnExtraClass(IServerPlayer player, string classCode)
         {
             string normalizedCode = NormalizeClassCode(classCode);
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
+            TrimUnusedSlotsOverConfiguredMax(state);
 
             if (!Ledger.ClassByCode.ContainsKey(normalizedCode))
             {

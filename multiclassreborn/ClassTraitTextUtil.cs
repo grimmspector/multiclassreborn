@@ -54,9 +54,9 @@ namespace multiclassreborn
             string cleanContent = StripVtml(content);
             if (string.IsNullOrWhiteSpace(cleanContent)) return;
 
-            double wrapTolerance = Math.Min(96, maxWidth * 0.22);
-            double firstWidth = Math.Max(1, maxWidth - MeasureTextWidth(prefix, font) + wrapTolerance);
-            double nextWidth = Math.Max(1, maxWidth - MeasureTextWidth(continuationPrefix, font) + wrapTolerance);
+            double wrapSafety = Math.Max(48, maxWidth * 0.12);
+            double firstWidth = Math.Max(1, maxWidth - MeasureTextWidth(prefix, font) - wrapSafety);
+            double nextWidth = Math.Max(1, maxWidth - MeasureTextWidth(continuationPrefix, font) - wrapSafety);
             List<string> lines = WrapVtmlText(content, font, firstWidth, nextWidth);
 
             for (int i = 0; i < lines.Count; i++)
@@ -70,8 +70,9 @@ namespace multiclassreborn
         {
             string trimmed = (text ?? "").TrimEnd('\r', '\n');
             int lines = trimmed.Length == 0 ? 1 : trimmed.Split('\n').Length;
+            double lineHeight = TextDraw.GetLineHeight(font);
 
-            return Math.Max(minimumHeight, lines * TextDraw.GetLineHeight(font));
+            return Math.Max(minimumHeight, (lines + 2) * lineHeight);
         }
 
         // Removes VTML tags before plain-text checks and measurements.
@@ -123,8 +124,9 @@ namespace multiclassreborn
         // Builds the stat line shown in the dialog and Traits tab.
         internal static string BuildStatText(KeyValuePair<string, double> stat, float scale, bool showScaledValue, bool isApplied = true)
         {
-            string baseText = Lang.Get($"charattribute-{stat.Key}-{stat.Value}");
+            string baseText = GetStatLangText(stat);
             if (!showScaledValue) return baseText;
+            if (IsMissingStatLangText(baseText)) return baseText;
             if (!ShouldScaleStat(stat.Key)) return baseText;
             if (!isApplied) return $"{baseText} (0%)";
 
@@ -133,6 +135,70 @@ namespace multiclassreborn
 
             string scaledValue = BuildCompactScaledValue(scaledText);
             return $"{baseText} ({scaledValue})";
+        }
+
+        // Gets the best available stat localization while keeping raw keys visible.
+        private static string GetStatLangText(KeyValuePair<string, double> stat)
+        {
+            foreach (string key in BuildStatLangKeys(stat))
+            {
+                if (Lang.HasTranslation(key, false, false)) return Lang.Get(key);
+
+                string wildcardText = Lang.GetMatchingIfExists(key);
+                if (!string.IsNullOrWhiteSpace(wildcardText)) return wildcardText;
+            }
+
+            return Lang.Get(BuildPrimaryStatLangKey(stat));
+        }
+
+        // Builds exact and corrected-case stat keys before falling back to the raw key.
+        private static IEnumerable<string> BuildStatLangKeys(KeyValuePair<string, double> stat)
+        {
+            string valueText = FormatStatKeyValue(stat.Value);
+            string primaryKey = BuildStatLangKey(stat.Key, valueText);
+            yield return primaryKey;
+
+            string normalizedStatCode = NormalizeStatLangCode(stat.Key);
+            if (!normalizedStatCode.Equals(stat.Key, StringComparison.Ordinal))
+            {
+                yield return BuildStatLangKey(normalizedStatCode, valueText);
+            }
+        }
+
+        // Builds the key that should remain visible when no translation exists.
+        private static string BuildPrimaryStatLangKey(KeyValuePair<string, double> stat)
+        {
+            return BuildStatLangKey(stat.Key, FormatStatKeyValue(stat.Value));
+        }
+
+        // Uses invariant formatting so locales with decimal commas still find JSON lang keys.
+        private static string FormatStatKeyValue(double value)
+        {
+            return value.ToString("0.###############", CultureInfo.InvariantCulture);
+        }
+
+        // Applies known lang-key casing used by damage tier trait attributes.
+        private static string NormalizeStatLangCode(string statCode)
+        {
+            if (string.IsNullOrWhiteSpace(statCode)) return statCode;
+
+            return Regex.Replace(
+                statCode,
+                "DamageTierBonus(blunt|piercing|slashing)Attack",
+                match => "DamageTierBonus" + CapitalizeCode(match.Groups[1].Value) + "Attack",
+                RegexOptions.IgnoreCase);
+        }
+
+        // Keeps stat lang key construction in one place.
+        private static string BuildStatLangKey(string statCode, string valueText)
+        {
+            return $"charattribute-{statCode}-{valueText}";
+        }
+
+        // Missing stat keys are intentional diagnostics and should not be scaled.
+        private static bool IsMissingStatLangText(string text)
+        {
+            return text.StartsWith("charattribute-", StringComparison.OrdinalIgnoreCase);
         }
 
         // Collects unique trait stats from the selected extra classes.

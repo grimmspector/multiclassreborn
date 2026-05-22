@@ -97,8 +97,8 @@ namespace CakeBuild
         public override void Run(BuildContext context)
         {
             context.EnsureDirectoryExists("../Releases");
-            context.CleanDirectory("../Releases");
             context.EnsureDirectoryExists($"../Releases/{context.ReleaseName}");
+            context.CleanDirectory($"../Releases/{context.ReleaseName}");
             context.CopyFiles($"../{BuildContext.ProjectName}/bin/{context.BuildConfiguration}/Mods/mod/publish/*", $"../Releases/{context.ReleaseName}");
             if (context.DirectoryExists($"../{BuildContext.ProjectName}/assets"))
             {

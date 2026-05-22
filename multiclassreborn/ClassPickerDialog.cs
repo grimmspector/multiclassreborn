@@ -57,7 +57,7 @@ namespace multiclassreborn
             return IsOpened() || base.TryOpen();
         }
 
-        // Opens the learning view after an Aptitude Glyphstone grants a slot.
+        // Opens the learning view from the hotkey or Aptitude Glyphstone.
         public bool OpenForLearning()
         {
             openedForRetraining = false;
