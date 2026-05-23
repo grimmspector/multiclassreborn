@@ -23,6 +23,12 @@ namespace multiclassreborn.systems
         [JsonProperty("EnableGlyphstoneRecipes")]
         public bool EnableGlyphstoneRecipes = false;
 
+        // Allows Aptitude Glyphstones to point at specific classes.
+        public bool EnableClassBoundGlyphstones;
+
+        // Removes the generic slot-token path while leaving bound glyphstones available.
+        public bool DisableGenericGlyphstones;
+
         // Multiplies stat changes from extra classes before applying them.
         [JsonProperty("SecondaryScale")]
         public float ExtraClassScale = 0.8f;
@@ -102,6 +108,7 @@ namespace multiclassreborn.systems
 
             config ??= new RebornClassConfig();
             config.ClampUnsafeValues(sapi);
+            config.LogConflictWarnings(sapi);
 
             return config;
         }
@@ -128,6 +135,30 @@ namespace multiclassreborn.systems
             changed |= ClampFloatValue("SecondaryScale", ref ExtraClassScale, MinExtraClassScale, MaxExtraClassScale, sapi);
 
             return changed;
+        }
+
+        // Logs settings that are valid on their own but inert in the current ruleset.
+        private void LogConflictWarnings(ICoreServerAPI sapi)
+        {
+            if (!AllowStatBonuses)
+            {
+                WarnIfConfigIgnored(sapi, nameof(OnlyApplyBestPositiveTraitBonus), OnlyApplyBestPositiveTraitBonus, "AllowStats is false, so positive trait stat filtering is not applied.");
+                WarnIfConfigIgnored(sapi, nameof(OnlyApplyWorstNegativeTraitPenalty), OnlyApplyWorstNegativeTraitPenalty, "AllowStats is false, so negative trait stat filtering is not applied.");
+            }
+
+            WarnIfConfigIgnored(sapi, nameof(RetrainFree), RetrainFree && !RequireGlyphs, "RequireTokens is false, so class forgetting is already free.");
+            WarnIfConfigIgnored(sapi, nameof(StartingAptitudeTokens), StartingAptitudeTokens > 0 && !RequireGlyphs, "RequireTokens is false, so players start with configured free class capacity instead of Aptitude Glyphstones.");
+            WarnIfConfigIgnored(sapi, nameof(StartingAptitudeTokens), StartingAptitudeTokens > 0 && DisableGenericGlyphstones, "DisableGenericGlyphstones is true, so starting Aptitude Glyphstones are not granted.");
+            WarnIfConfigIgnored(sapi, nameof(EnableGlyphstoneRecipes), EnableGlyphstoneRecipes && DisableGenericGlyphstones && !EnableClassBoundGlyphstones && RetrainFreeApplies, "DisableGenericGlyphstones is true, EnableClassBoundGlyphstones is false, and RetrainFree is active, so no built-in glyphstone recipes are registered.");
+            WarnIfConfigIgnored(sapi, nameof(EnableClassBoundGlyphstones), EnableClassBoundGlyphstones && MaxExtraClasses == 0 && !AllowForgettingBaseClass && !AllowCommonersChooseBaseClass, "MaxExtraClasses is 0 and base-class replacement is disabled, so class-bound glyphstones cannot apply classes.");
+        }
+
+        // Keeps conflict logging terse and consistent.
+        private static void WarnIfConfigIgnored(ICoreServerAPI sapi, string key, bool ignored, string reason)
+        {
+            if (!ignored) return;
+
+            sapi?.Logger.Warning("[Multiclass Reborn] Config {0} has no effect: {1}", key, reason);
         }
 
         // Clamps one integer and logs the correction.
@@ -213,6 +244,12 @@ namespace multiclassreborn.systems
 
   // Enables craftable Aptitude and Retraining Glyphstones. Default: false.
   ""EnableGlyphstoneRecipes"": {JsonBool(config.EnableGlyphstoneRecipes)},
+
+  // Enables JSON-defined class-bound Aptitude Glyphstones. Default: false.
+  ""EnableClassBoundGlyphstones"": {JsonBool(config.EnableClassBoundGlyphstones)},
+
+  // Disables generic Aptitude Glyphstones. Retraining follows RetrainFree. Default: false.
+  ""DisableGenericGlyphstones"": {JsonBool(config.DisableGenericGlyphstones)},
 
   // Multiplies extra-class stat changes. Valid range: 0-3. Default: 0.8.
   ""SecondaryScale"": {config.ExtraClassScale.ToString(CultureInfo.InvariantCulture)},

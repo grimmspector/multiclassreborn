@@ -49,6 +49,8 @@ namespace multiclassreborn
 
         private string selectedClassCode;
         private string pendingForgetClassCode;
+        private string pendingBoundClassCode;
+        private HashSet<string> boundTargetClassCodes;
         private bool openedForRetraining;
         private int pageIndex;
         private int lastFrameWidth;
@@ -68,6 +70,8 @@ namespace multiclassreborn
         {
             openedForRetraining = false;
             pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
+            boundTargetClassCodes = null;
             ComposeDialog();
             return base.TryOpen();
         }
@@ -77,6 +81,8 @@ namespace multiclassreborn
         {
             openedForRetraining = true;
             pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
+            boundTargetClassCodes = null;
             ComposeDialog();
             return IsOpened() || base.TryOpen();
         }
@@ -86,10 +92,24 @@ namespace multiclassreborn
         {
             openedForRetraining = false;
             pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
+            boundTargetClassCodes = null;
             ComposeDialog();
 
             // Slot grants happen server-side, so reopen from glyph use after the state sync.
             clientApi.Event.RegisterCallback(_ => ComposeDialog(), 500);
+            return IsOpened() || base.TryOpen();
+        }
+
+        // Opens the picker around the classes allowed by the held glyphstone.
+        public bool OpenForBoundGlyphstone(IEnumerable<string> targetClassCodes)
+        {
+            openedForRetraining = false;
+            pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
+            boundTargetClassCodes = BuildBoundTargetClassSet(targetClassCodes);
+            selectedClassCode = boundTargetClassCodes.FirstOrDefault();
+            ComposeDialog();
             return IsOpened() || base.TryOpen();
         }
 
@@ -210,6 +230,13 @@ namespace multiclassreborn
         // Shows slot usage in the title for both dialog modes.
         private string BuildTitle(RebornPlayerClassState state)
         {
+            if (IsBoundMode())
+            {
+                return boundTargetClassCodes.Count == 1
+                    ? Lang.Get("multiclassreborn:dialog-title-bound-glyphstone", ClassTraitTextUtil.GetClassName(boundTargetClassCodes.First()))
+                    : Lang.Get("multiclassreborn:dialog-title-bound-glyphstone-multiple");
+            }
+
             return openedForRetraining
                 ? Lang.Get("multiclassreborn:dialog-title-retrain", state.UsedSlots, state.AvailableSlots)
                 : Lang.Get("multiclassreborn:dialog-title-choose", state.UsedSlots, state.AvailableSlots);
@@ -266,12 +293,23 @@ namespace multiclassreborn
             bool isMainClass = classDef.Code.Equals(mainClass, StringComparison.OrdinalIgnoreCase);
             bool isLearned = extraClasses.Contains(classDef.Code);
             bool isCommoner = mainClass.Equals("commoner", StringComparison.OrdinalIgnoreCase);
-            bool canLearn = !isMainClass && !isLearned && state.UsedSlots < state.AvailableSlots;
+            bool isClassBoundOnly = classSystem.Ledger.ClassBoundOnlyCodes.Contains(classDef.Code);
+            bool canLearn = !isClassBoundOnly && !isMainClass && !isLearned && state.UsedSlots < state.AvailableSlots;
             bool canForgetExtra = !isMainClass && isLearned;
             bool canForgetMain = isMainClass && state.AllowsBaseClassForgetting && !isCommoner;
-            bool canChooseBase = isCommoner && state.AllowsCommonerBaseClassChoice && !isMainClass && !classDef.Code.Equals("commoner", StringComparison.OrdinalIgnoreCase);
+            bool canChooseBase = !isClassBoundOnly && isCommoner && state.AllowsCommonerBaseClassChoice && !isMainClass && !classDef.Code.Equals("commoner", StringComparison.OrdinalIgnoreCase);
+            bool isBoundMode = IsBoundMode();
+            bool isBoundTarget = isBoundMode && boundTargetClassCodes.Contains(classDef.Code);
+            bool canBoundExtraLearn = isBoundTarget && !isMainClass && !isLearned && state.UsedSlots < state.ReviewedMaxExtraClasses;
+            bool canBoundBaseReplace = isBoundTarget && CanReplaceBaseWithBoundGlyphstone(classDef, mainClass, isMainClass, isLearned, state);
 
-            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, canChooseBase, extraClasses, state, detailBounds), detailBounds);
+            AddScrollableClassDetails(BuildClassDetailText(classDef, isMainClass, isLearned, canChooseBase, isClassBoundOnly, extraClasses, state, detailBounds), detailBounds);
+
+            if (isBoundMode)
+            {
+                AddBoundGlyphstoneAction(actionBounds, classDef, isBoundTarget, canBoundExtraLearn, canBoundBaseReplace, mainClass);
+                return;
+            }
 
             if (pendingForgetClassCode == classDef.Code)
             {
@@ -303,6 +341,12 @@ namespace multiclassreborn
                 return;
             }
 
+            if (isClassBoundOnly && !isMainClass && !isLearned)
+            {
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-requires-glyphstone"), () => false, actionBounds, EnumButtonStyle.Small, "requiresBoundGlyphstone");
+                return;
+            }
+
             if (isLearned)
             {
                 SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-forget"), () => ConfirmForget(classDef.Code), actionBounds, EnumButtonStyle.Normal, "forgetClass");
@@ -313,6 +357,63 @@ namespace multiclassreborn
             {
                 SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-need-class-slot"), () => false, actionBounds, EnumButtonStyle.Small, "blockedClass");
             }
+        }
+
+        // Keeps the bound-glyphstone flow in the same detail pane as normal learning.
+        private void AddBoundGlyphstoneAction(ElementBounds actionBounds, CharacterClass classDef, bool isBoundTarget, bool canLearn, bool canReplaceBase, string mainClass)
+        {
+            if (!isBoundTarget)
+            {
+                string targetName = BuildBoundTargetNames();
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-bound-to-class", targetName), () => false, actionBounds, EnumButtonStyle.Small, "blockedBoundGlyphstone");
+                return;
+            }
+
+            if (pendingBoundClassCode == classDef.Code)
+            {
+                AddBoundGlyphstoneConfirmation(actionBounds, classDef, canReplaceBase, mainClass);
+                return;
+            }
+
+            if (canReplaceBase)
+            {
+                string mainClassName = ClassTraitTextUtil.GetClassName(mainClass);
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-replace-class", mainClassName), () => ConfirmBoundGlyphstone(classDef.Code), actionBounds, EnumButtonStyle.Normal, "replaceBaseClass");
+                return;
+            }
+
+            if (canLearn)
+            {
+                SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-learn"), () => ConfirmBoundGlyphstone(classDef.Code), actionBounds, EnumButtonStyle.Normal, "learnBoundClass");
+                return;
+            }
+
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cannot-use-glyphstone"), () => false, actionBounds, EnumButtonStyle.Small, "blockedBoundTarget");
+        }
+
+        // Uses the same two-click guard as forgetting before the glyphstone is spent.
+        private void AddBoundGlyphstoneConfirmation(ElementBounds actionBounds, CharacterClass classDef, bool replacesBase, string mainClass)
+        {
+            double buttonGap = 20;
+            double buttonWidth = Math.Max(120, (actionBounds.fixedWidth - buttonGap) / 2);
+            ElementBounds cancelBounds = ElementBounds.Fixed(actionBounds.fixedX, actionBounds.fixedY, buttonWidth, 30);
+            ElementBounds learnBounds = ElementBounds.Fixed(actionBounds.fixedX + buttonWidth + buttonGap, actionBounds.fixedY, buttonWidth, 30);
+            string actionText = replacesBase
+                ? Lang.Get("multiclassreborn:button-replace-class", ClassTraitTextUtil.GetClassName(mainClass))
+                : Lang.Get("multiclassreborn:button-learn");
+
+            SingleComposer.AddSmallButton(Lang.Get("multiclassreborn:button-cancel"), CancelBoundGlyphstone, cancelBounds, EnumButtonStyle.Small, "cancelBoundGlyphstone");
+            SingleComposer.AddSmallButton(actionText, () => SendClassCommand("confirmglyph", classDef.Code), learnBounds, EnumButtonStyle.Normal, "confirmBoundGlyphstone");
+        }
+
+        // Mirrors the server-side replacement checks so the button stays honest.
+        private bool CanReplaceBaseWithBoundGlyphstone(CharacterClass classDef, string mainClass, bool isMainClass, bool isLearned, RebornPlayerClassState state)
+        {
+            if (state.ReviewedMaxExtraClasses != 0) return false;
+            if (isMainClass || isLearned) return false;
+
+            bool isCommoner = mainClass.Equals("commoner", StringComparison.OrdinalIgnoreCase);
+            return state.AllowsBaseClassForgetting || (isCommoner && state.AllowsCommonerBaseClassChoice);
         }
 
         // Requires a second click before sending the destructive forget command.
@@ -358,7 +459,7 @@ namespace multiclassreborn
         }
 
         // Builds the selected class preview with scaled values only for extra classes.
-        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, bool canChooseBase, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
+        private string BuildClassDetailText(CharacterClass classDef, bool isMainClass, bool isLearned, bool canChooseBase, bool isClassBoundOnly, List<string> extraClasses, RebornPlayerClassState state, ElementBounds detailBounds)
         {
             CairoFont font = CairoFont.WhiteSmallText();
             double maxWidth = detailBounds.fixedWidth - DetailScrollbarWidth - DetailScrollbarPadding;
@@ -382,9 +483,21 @@ namespace multiclassreborn
                 hasStatusLine = true;
             }
 
-            if (!isMainClass && !isLearned && state.UsedSlots >= state.AvailableSlots)
+            if (!IsBoundMode() && !isMainClass && !isLearned && state.UsedSlots >= state.AvailableSlots)
             {
                 text.AppendLine(Lang.Get("multiclassreborn:dialog-status-need-slot"));
+                hasStatusLine = true;
+            }
+
+            if (IsBoundMode() && !boundTargetClassCodes.Contains(classDef.Code))
+            {
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-status-bound-other-class", BuildBoundTargetNames()));
+                hasStatusLine = true;
+            }
+
+            if (!IsBoundMode() && isClassBoundOnly)
+            {
+                text.AppendLine(Lang.Get("multiclassreborn:dialog-status-requires-bound-glyphstone"));
                 hasStatusLine = true;
             }
 
@@ -457,6 +570,7 @@ namespace multiclassreborn
         {
             selectedClassCode = classCode;
             pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
             ComposeDialog();
             return true;
         }
@@ -465,6 +579,22 @@ namespace multiclassreborn
         private bool ConfirmForget(string classCode)
         {
             pendingForgetClassCode = classCode;
+            ComposeDialog();
+            return true;
+        }
+
+        // Arms the chosen bound class for the second click.
+        private bool ConfirmBoundGlyphstone(string classCode)
+        {
+            pendingBoundClassCode = classCode;
+            ComposeDialog();
+            return true;
+        }
+
+        // Backs out of the pending bound-glyphstone confirmation.
+        private bool CancelBoundGlyphstone()
+        {
+            pendingBoundClassCode = null;
             ComposeDialog();
             return true;
         }
@@ -498,6 +628,7 @@ namespace multiclassreborn
         {
             clientApi.SendChatMessage($"/multiclass {action} {classCode}");
             pendingForgetClassCode = null;
+            pendingBoundClassCode = null;
 
             // Chat commands complete after the packet round-trip; refresh once state catches up.
             clientApi.Event.RegisterCallback(_ => RefreshAfterClassCommand(), 500);
@@ -522,6 +653,42 @@ namespace multiclassreborn
             if (state.ExtraClasses.Count == 0) return true;
 
             return state.RequiresGlyphs && !state.RetrainFree && !ClientHasRetrainingGlyphstone();
+        }
+
+        // Keeps class-code comparisons stable across item JSON and chat commands.
+        private string NormalizeClassCode(string classCode)
+        {
+            return (classCode ?? "").Trim().ToLowerInvariant();
+        }
+
+        // Builds the lookup used while the held glyphstone constrains the picker.
+        private HashSet<string> BuildBoundTargetClassSet(IEnumerable<string> targetClassCodes)
+        {
+            HashSet<string> targetSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string targetClassCode in targetClassCodes ?? Enumerable.Empty<string>())
+            {
+                string normalizedCode = NormalizeClassCode(targetClassCode);
+                if (normalizedCode.Length == 0) continue;
+
+                targetSet.Add(normalizedCode);
+            }
+
+            return targetSet;
+        }
+
+        // Bound mode is only active while a held glyphstone supplied usable targets.
+        private bool IsBoundMode()
+        {
+            return boundTargetClassCodes != null && boundTargetClassCodes.Count > 0;
+        }
+
+        // Formats the target list for blocked-class hints.
+        private string BuildBoundTargetNames()
+        {
+            if (!IsBoundMode()) return "";
+
+            return string.Join(", ", boundTargetClassCodes.Select(ClassTraitTextUtil.GetClassName));
         }
 
         // Checks the client hotbar mirror before keeping the retraining view open.

@@ -71,11 +71,13 @@ namespace multiclassreborn
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
 
-            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, Scale={4:P0}, MaxSlots={5}, DropOverMax={6}, RequireGlyphs={7}, RetrainFree={8}, StartingAptitudeTokens={9}, BestPositiveOnly={10}, WorstNegativeOnly={11}",
+            sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, ClassBoundGlyphstones={4}, DisableGenericGlyphstones={5}, Scale={6:P0}, MaxSlots={7}, DropOverMax={8}, RequireGlyphs={9}, RetrainFree={10}, StartingAptitudeTokens={11}, BestPositiveOnly={12}, WorstNegativeOnly={13}",
                 Ledger.EnabledClasses.Count,
                 Config.AllowStatBonuses,
                 Config.AllowRecipeTraits,
                 Config.EnableGlyphstoneRecipes,
+                Config.EnableClassBoundGlyphstones,
+                Config.DisableGenericGlyphstones,
                 Config.ExtraClassScale,
                 Config.MaxExtraClasses,
                 Config.DropExtraClassesOverMax,
@@ -86,15 +88,23 @@ namespace multiclassreborn
                 Config.OnlyApplyWorstNegativeTraitPenalty);
         }
 
-        // Removes retraining glyphstone sources that are parsed from JSON assets.
+        // Prunes JSON trader offers for glyphstones disabled by the current ruleset.
         public override void AssetsFinalize(ICoreAPI api)
         {
             base.AssetsFinalize(api);
             if (api.Side != EnumAppSide.Server) return;
             if (api is ICoreServerAPI serverApi) Config ??= RebornClassConfig.Load(serverApi);
-            if (Config?.RetrainFreeApplies != true) return;
+            if (Config == null) return;
 
-            RemoveRetrainingGlyphstoneTraderOffers(api);
+            if (Config.DisableGenericGlyphstones)
+            {
+                RemoveGlyphstoneTraderOffers(api, AptitudeGlyphItemCode);
+            }
+
+            if (Config.RetrainFreeApplies)
+            {
+                RemoveGlyphstoneTraderOffers(api, RetrainGlyphItemCode);
+            }
         }
 
         // Loads client lookup data, GUI patches, handbook ordering, and hotkeys.
@@ -180,6 +190,11 @@ namespace multiclassreborn
                     .WithDescription(Lang.Get("multiclassreborn:command-confirmforget-description"))
                     .HandleWith(args => RunPlayerCommand(args, player => ForgetClassAfterConfirmation(player, (string)args[0])))
                 .EndSubCommand()
+                .BeginSubCommand("confirmglyph")
+                    .WithArgs(parsers.Word("classcode"))
+                    .WithDescription(Lang.Get("multiclassreborn:command-confirmglyph-description"))
+                    .HandleWith(args => RunPlayerCommand(args, player => ApplyClassBoundGlyphstone(player, (string)args[0])))
+                .EndSubCommand()
                 .BeginSubCommand("setbase")
                     .WithArgs(parsers.Word("classcode"))
                     .WithDescription(Lang.Get("multiclassreborn:command-setbase-description"))
@@ -204,6 +219,7 @@ namespace multiclassreborn
                 .EndSubCommand()
                 .BeginSubCommand("clear")
                     .WithDescription(Lang.Get("multiclassreborn:command-clear-description"))
+                    .RequiresPrivilege(Privilege.controlserver)
                     .HandleWith(args => RunPlayerCommand(args, ClearExtraClasses))
                 .EndSubCommand()
                 .BeginSubCommand("giveglyph")
@@ -217,6 +233,12 @@ namespace multiclassreborn
                     .WithDescription(Lang.Get("multiclassreborn:command-giveretrainglyph-description"))
                     .RequiresPrivilege(Privilege.controlserver)
                     .HandleWith(args => RunPlayerCommand(args, player => GiveRetrainGlyphItem(player, (string)args[0])))
+                .EndSubCommand()
+                .BeginSubCommand("giveboundglyph")
+                    .WithArgs(parsers.Word("playername"), parsers.Word("itemcode"))
+                    .WithDescription(Lang.Get("multiclassreborn:command-giveboundglyph-description"))
+                    .RequiresPrivilege(Privilege.controlserver)
+                    .HandleWith(args => RunPlayerCommand(args, player => GiveBoundGlyphItem(player, (string)args[0], (string)args[1])))
                 .EndSubCommand();
         }
 
@@ -225,14 +247,40 @@ namespace multiclassreborn
         {
             if (!Config.EnableGlyphstoneRecipes) return;
 
-            RegisterGlyphstoneRecipe("craft-aptitude-glyphstone", AptitudeGlyphItemCode, "clearquartz");
+            if (!Config.DisableGenericGlyphstones)
+            {
+                RegisterGlyphstoneRecipe("craft-aptitude-glyphstone", AptitudeGlyphItemCode, "clearquartz");
+            }
+
+            RegisterClassBoundGlyphstoneRecipes();
             if (Config.RetrainFreeApplies) return;
 
             RegisterGlyphstoneRecipe("craft-retraining-glyphstone", RetrainGlyphItemCode, "gear-rusty");
         }
 
-        // Removes the configured trader offer when retraining is free.
-        private void RemoveRetrainingGlyphstoneTraderOffers(ICoreAPI api)
+        // Registers the built-in bound glyphstone recipes for enabled vanilla classes.
+        private void RegisterClassBoundGlyphstoneRecipes()
+        {
+            if (!Config.EnableClassBoundGlyphstones) return;
+
+            RegisterClassBoundGlyphstoneRecipe("craft-blackguard-glyphstone", "multiclassreborn:blackguard-glyphstone", "blackguard", ItemIngredient("metalbit-blackbronze"));
+            RegisterClassBoundGlyphstoneRecipe("craft-clockmaker-glyphstone", "multiclassreborn:clockmaker-glyphstone", "clockmaker", ItemIngredient("metalbit-brass"));
+            RegisterClassBoundGlyphstoneRecipe("craft-commoner-glyphstone", "multiclassreborn:commoner-glyphstone", "commoner", BlockIngredient("packeddirt"));
+            RegisterClassBoundGlyphstoneRecipe("craft-hunter-glyphstone", "multiclassreborn:hunter-glyphstone", "hunter", ItemIngredient("arrowhead-flint"));
+            RegisterClassBoundGlyphstoneRecipe("craft-malefactor-glyphstone", "multiclassreborn:malefactor-glyphstone", "malefactor", BlockIngredient("metal-parts"));
+            RegisterClassBoundGlyphstoneRecipe("craft-tailor-glyphstone", "multiclassreborn:tailor-glyphstone", "tailor", BlockIngredient("linen-normal-down"));
+        }
+
+        // Avoids recipes for classes that another content pack removed or replaced.
+        private void RegisterClassBoundGlyphstoneRecipe(string recipeName, string outputCode, string targetClassCode, CraftingRecipeIngredient roleIngredient)
+        {
+            if (!Ledger.ClassByCode.ContainsKey(targetClassCode)) return;
+
+            RegisterGlyphstoneRecipe(recipeName, outputCode, roleIngredient);
+        }
+
+        // Removes trader offers for one glyphstone item code from the loaded trade list.
+        private void RemoveGlyphstoneTraderOffers(ICoreAPI api, string glyphstoneItemCode)
         {
             IAsset tradeListAsset = api.Assets.TryGet(new AssetLocation("game:config/tradelists/trader-luxuries.json"), true);
             if (tradeListAsset == null) return;
@@ -240,22 +288,28 @@ namespace multiclassreborn
             JObject tradeList = JObject.Parse(tradeListAsset.ToText());
             if (tradeList.SelectToken("selling.list") is not JArray sellingList) return;
 
-            List<JToken> retrainingOffers = sellingList
-                .Where(token => token?["code"]?.ToString().Equals(RetrainGlyphItemCode, StringComparison.OrdinalIgnoreCase) == true)
+            List<JToken> matchingOffers = sellingList
+                .Where(token => token?["code"]?.ToString().Equals(glyphstoneItemCode, StringComparison.OrdinalIgnoreCase) == true)
                 .ToList();
 
-            if (retrainingOffers.Count == 0) return;
+            if (matchingOffers.Count == 0) return;
 
-            foreach (JToken retrainingOffer in retrainingOffers)
+            foreach (JToken matchingOffer in matchingOffers)
             {
-                retrainingOffer.Remove();
+                matchingOffer.Remove();
             }
 
             tradeListAsset.Data = Encoding.UTF8.GetBytes(tradeList.ToString(Formatting.Indented));
         }
 
-        // Builds one shaped recipe around the item that defines its purpose.
+        // Uses an item code for the recipe's class-flavored ingredient.
         private void RegisterGlyphstoneRecipe(string recipeName, string outputCode, string roleItemCode)
+        {
+            RegisterGlyphstoneRecipe(recipeName, outputCode, ItemIngredient(roleItemCode));
+        }
+
+        // Keeps all glyphstone recipes on the same frame while swapping the role ingredient.
+        private void RegisterGlyphstoneRecipe(string recipeName, string outputCode, CraftingRecipeIngredient roleIngredient)
         {
             GridRecipe recipe = new GridRecipe()
             {
@@ -274,7 +328,7 @@ namespace multiclassreborn
                     { "E", MetalBitIngredient() },
                     { "F", StoneIngredient() },
                     { "H", StoneIngredient() },
-                    { "R", ItemIngredient(roleItemCode) },
+                    { "R", roleIngredient },
                     { "T", ItemIngredient("gear-temporal") }
                 },
                 Output = ItemIngredient(outputCode)
@@ -302,6 +356,17 @@ namespace multiclassreborn
             ingredient.AllowedVariants = new[] { "gold", "silver" };
 
             return ingredient;
+        }
+
+        // Uses a block ingredient when a vanilla class flavor is block-based.
+        private CraftingRecipeIngredient BlockIngredient(string code)
+        {
+            return new CraftingRecipeIngredient()
+            {
+                Type = EnumItemClass.Block,
+                Code = new AssetLocation(code),
+                Quantity = 1
+            };
         }
 
         // Creates a one-item crafting ingredient for programmatic recipes.
@@ -337,6 +402,12 @@ namespace multiclassreborn
         internal void OpenClassDialogForLearning()
         {
             classDialog?.OpenForLearning();
+        }
+
+        // Opens the client dialog around the targets supplied by the held glyphstone.
+        internal void OpenClassDialogForBoundGlyphstone(IEnumerable<string> targetClasses)
+        {
+            classDialog?.OpenForBoundGlyphstone(targetClasses?.Select(NormalizeClassCode));
         }
 
         // Syncs config-backed player state after character creation finishes.
@@ -409,6 +480,7 @@ namespace multiclassreborn
         // First-join tokens only matter on glyph-gated servers.
         private void GrantStartingAptitudeTokens(IServerPlayer player)
         {
+            if (Config.DisableGenericGlyphstones) return;
             if (!Config.RequireGlyphs || Config.StartingAptitudeTokens <= 0) return;
 
             Item item = sapi.World.GetItem(new AssetLocation(AptitudeGlyphItemCode));
@@ -437,6 +509,12 @@ namespace multiclassreborn
         // Adds one usable extra-class slot if the player is below the configured cap.
         internal bool TryGrantClassSlot(IServerPlayer player)
         {
+            if (Config.DisableGenericGlyphstones)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-generic-aptitude-glyphstones-disabled"), EnumChatType.Notification);
+                return false;
+            }
+
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
             TrimUnusedSlotsOverConfiguredMax(state);
 
@@ -474,6 +552,12 @@ namespace multiclassreborn
                 return;
             }
 
+            if (Ledger.ClassBoundOnlyCodes.Contains(normalizedCode))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-class-requires-bound-glyphstone", normalizedCode), EnumChatType.Notification);
+                return;
+            }
+
             if (GetMainClassCode(player.Entity).Equals(normalizedCode, StringComparison.OrdinalIgnoreCase))
             {
                 Tell(player, Lang.Get("multiclassreborn:message-already-main-class", normalizedCode), EnumChatType.Notification);
@@ -505,6 +589,161 @@ namespace multiclassreborn
 
             ReapplyClassEffects(player);
             Tell(player, Lang.Get("multiclassreborn:message-added-extra-class", normalizedCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
+        }
+
+        // Applies a bound glyphstone only after re-checking the player's hotbar.
+        internal void ApplyClassBoundGlyphstone(IServerPlayer player, string requestedClassCode)
+        {
+            string normalizedCode = NormalizeClassCode(requestedClassCode);
+
+            if (!Config.EnableClassBoundGlyphstones)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-bound-glyphstones-disabled"), EnumChatType.Notification);
+                return;
+            }
+
+            if (!TryFindClassBoundGlyphstone(player, normalizedCode, out ItemSlot glyphSlot))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-bound-glyphstone-missing", normalizedCode), EnumChatType.Notification);
+                return;
+            }
+
+            if (!Ledger.ClassByCode.ContainsKey(normalizedCode))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-class-does-not-exist", normalizedCode), EnumChatType.Notification);
+                return;
+            }
+
+            bool applied = Config.MaxExtraClasses == 0
+                ? TryReplaceBaseClassWithGlyphstone(player, normalizedCode)
+                : TryLearnBoundExtraClass(player, normalizedCode);
+
+            if (!applied) return;
+
+            glyphSlot.TakeOut(1);
+            glyphSlot.MarkDirty();
+        }
+
+        // Learns the bound class as an extra class without relying on a generic slot token.
+        private bool TryLearnBoundExtraClass(IServerPlayer player, string classCode)
+        {
+            RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
+            TrimUnusedSlotsOverConfiguredMax(state);
+
+            if (GetMainClassCode(player.Entity).Equals(classCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-already-main-class", classCode), EnumChatType.Notification);
+                return false;
+            }
+
+            List<string> extraClasses = state.ExtraClasses;
+            if (extraClasses.Contains(classCode))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-already-have-class", classCode), EnumChatType.Notification);
+                return false;
+            }
+
+            if (extraClasses.Count >= Config.MaxExtraClasses)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-cannot-add-more-classes", Config.MaxExtraClasses), EnumChatType.Notification);
+                return false;
+            }
+
+            state.AvailableSlots = Math.Min(Config.MaxExtraClasses, Math.Max(state.AvailableSlots, state.UsedSlots + 1));
+            extraClasses.Add(classCode);
+            state.ExtraClasses = extraClasses;
+            state.UsedSlots = extraClasses.Count;
+
+            ReapplyClassEffects(player);
+            Tell(player, Lang.Get("multiclassreborn:message-bound-glyphstone-learned", classCode, state.UsedSlots, state.AvailableSlots), EnumChatType.Notification);
+            return true;
+        }
+
+        // Reuses the existing base-class rules for zero-extra-class worlds.
+        private bool TryReplaceBaseClassWithGlyphstone(IServerPlayer player, string classCode)
+        {
+            string mainClassCode = GetMainClassCode(player.Entity);
+            bool isCommoner = mainClassCode.Equals(CommonerClassCode, StringComparison.OrdinalIgnoreCase);
+            bool canReplaceBase = Config.AllowForgettingBaseClass || (isCommoner && Config.AllowCommonersChooseBaseClass);
+
+            if (!canReplaceBase)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-bound-base-replacement-disabled"), EnumChatType.Notification);
+                return false;
+            }
+
+            if (mainClassCode.Equals(classCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-already-main-class", classCode), EnumChatType.Notification);
+                return false;
+            }
+
+            RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
+            if (state.ExtraClasses.Contains(classCode))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-already-have-class", classCode), EnumChatType.Notification);
+                return false;
+            }
+
+            player.Entity.WatchedAttributes.SetString("characterClass", classCode);
+            player.Entity.WatchedAttributes.MarkPathDirty("characterClass");
+            ReapplyClassEffects(player);
+            Tell(player, Lang.Get("multiclassreborn:message-bound-glyphstone-replaced-base", classCode), EnumChatType.Notification);
+            return true;
+        }
+
+        // Searches the hotbar so the GUI can confirm from any visible glyphstone stack.
+        private bool TryFindClassBoundGlyphstone(IServerPlayer player, string classCode, out ItemSlot glyphSlot)
+        {
+            glyphSlot = null;
+
+            if (TryMatchClassBoundGlyphstone(player.InventoryManager.ActiveHotbarSlot, classCode))
+            {
+                glyphSlot = player.InventoryManager.ActiveHotbarSlot;
+                return true;
+            }
+
+            foreach (IInventory inventory in player.InventoryManager.InventoriesOrdered)
+            {
+                if (!IsHotbarInventory(inventory)) continue;
+                if (!TryGetInventoryCount(inventory, out int slotCount)) continue;
+
+                for (int slotId = 0; slotId < slotCount; slotId++)
+                {
+                    ItemSlot slot = inventory[slotId];
+                    if (!TryMatchClassBoundGlyphstone(slot, classCode)) continue;
+
+                    glyphSlot = slot;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Checks one slot for a bound glyphstone that can pay for this class.
+        private bool TryMatchClassBoundGlyphstone(ItemSlot slot, string classCode)
+        {
+            if (slot == null || slot.Empty) return false;
+            if (slot.Itemstack.Collectible is not ClassSlotGlyphItem) return false;
+
+            List<string> glyphClassCodes = ClassSlotGlyphItem.GetTargetClasses(slot.Itemstack);
+            if (!glyphClassCodes.Contains(classCode, StringComparer.OrdinalIgnoreCase)) return false;
+            if (!Ledger.RequiredGlyphstoneByClassCode.TryGetValue(classCode, out string requiredGlyphstoneCode)) return true;
+
+            return RequiredGlyphstoneMatches(slot.Itemstack.Collectible.Code, requiredGlyphstoneCode);
+        }
+
+        // Treats unqualified requiredGlyphstone values as this mod's item domain.
+        private bool RequiredGlyphstoneMatches(AssetLocation actualCode, string requiredGlyphstoneCode)
+        {
+            if (actualCode == null || string.IsNullOrWhiteSpace(requiredGlyphstoneCode)) return false;
+
+            string normalizedCode = requiredGlyphstoneCode.Trim().ToLowerInvariant();
+            if (actualCode.Equals(new AssetLocation(normalizedCode))) return true;
+            if (normalizedCode.Contains(':')) return false;
+
+            return actualCode.Equals(new AssetLocation("multiclassreborn", normalizedCode));
         }
 
         // Forgets an extra class through the non-glyph command path.
@@ -613,6 +852,12 @@ namespace multiclassreborn
             if (!Ledger.ClassByCode.ContainsKey(normalizedCode) || normalizedCode.Equals(CommonerClassCode, StringComparison.OrdinalIgnoreCase))
             {
                 Tell(player, Lang.Get("multiclassreborn:message-class-cannot-be-base", normalizedCode), EnumChatType.Notification);
+                return;
+            }
+
+            if (Ledger.ClassBoundOnlyCodes.Contains(normalizedCode))
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-class-requires-bound-glyphstone", normalizedCode), EnumChatType.Notification);
                 return;
             }
 
@@ -875,6 +1120,71 @@ namespace multiclassreborn
             }
 
             GiveAptitudeGlyphItem(admin, playerName, RetrainGlyphItemCode, "item-retraining-glyphstone");
+        }
+
+        // Gives a bound glyphstone only after confirming the item really has targets.
+        private void GiveBoundGlyphItem(IServerPlayer admin, string playerName, string itemCode)
+        {
+            Item item = ResolveBoundGlyphItem(itemCode);
+            if (item == null)
+            {
+                Tell(admin, Lang.Get("multiclassreborn:message-could-not-resolve-item", itemCode), EnumChatType.Notification);
+                return;
+            }
+
+            ItemStack stack = new ItemStack(item, 1);
+            if (ClassSlotGlyphItem.GetTargetClasses(stack).Count == 0)
+            {
+                Tell(admin, Lang.Get("multiclassreborn:message-not-bound-glyphstone", item.Code.ToString()), EnumChatType.Notification);
+                return;
+            }
+
+            GiveAptitudeGlyphItem(admin, playerName, item.Code.ToString(), "item-" + item.Code.Path);
+        }
+
+        // Resolves admin shorthand such as hunter to a loaded bound glyphstone item.
+        private Item ResolveBoundGlyphItem(string itemCode)
+        {
+            string normalizedInput = NormalizeClassCode(itemCode);
+            foreach (AssetLocation candidateCode in BuildBoundGlyphItemCandidates(normalizedInput))
+            {
+                Item candidateItem = sapi.World.GetItem(candidateCode);
+                if (IsClassBoundGlyphItem(candidateItem)) return candidateItem;
+            }
+
+            return sapi.World.Items
+                .Where(IsClassBoundGlyphItem)
+                .FirstOrDefault(item => MatchesBoundGlyphLookup(item, normalizedInput));
+        }
+
+        // Tries common item-code forms before falling back to the full item scan.
+        private IEnumerable<AssetLocation> BuildBoundGlyphItemCandidates(string itemCode)
+        {
+            if (string.IsNullOrWhiteSpace(itemCode)) yield break;
+
+            string exactCode = itemCode.Contains(':') ? itemCode : "multiclassreborn:" + itemCode;
+            yield return new AssetLocation(exactCode);
+
+            if (exactCode.EndsWith("-glyphstone", StringComparison.OrdinalIgnoreCase)) yield break;
+
+            yield return new AssetLocation(exactCode + "-glyphstone");
+        }
+
+        // Filters the item scan to glyphstones with bound targets.
+        private bool IsClassBoundGlyphItem(Item item)
+        {
+            if (item is not ClassSlotGlyphItem) return false;
+
+            return ClassSlotGlyphItem.GetTargetClasses(new ItemStack(item)).Count > 0;
+        }
+
+        // Lets admins use either the item path or the target class code.
+        private bool MatchesBoundGlyphLookup(Item item, string itemCode)
+        {
+            if (item.Code.Path.Equals(itemCode, StringComparison.OrdinalIgnoreCase)) return true;
+            if (item.Code.Path.Equals(itemCode + "-glyphstone", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return ClassSlotGlyphItem.GetTargetClasses(new ItemStack(item)).Contains(itemCode, StringComparer.OrdinalIgnoreCase);
         }
 
         // Rebuilds all extra-class stat and recipe effects from current state.
