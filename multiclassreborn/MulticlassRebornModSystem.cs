@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using HarmonyLib;
 using multiclassreborn.items;
@@ -1005,6 +1006,7 @@ namespace multiclassreborn
             state.UsedSlots = 0;
 
             ClearRebornStats(player);
+            RefreshDependentPlayerStats(player);
             Tell(player, Lang.Get("multiclassreborn:message-extra-classes-cleared"), EnumChatType.Notification);
         }
 
@@ -1193,16 +1195,22 @@ namespace multiclassreborn
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
             HashSet<string> traitCodes = GatherExtraTraitCodes(state.ExtraClasses);
 
+            // Claim current extra-class recipe traits when upgrading from versions
+            // that wrote them without tracking ownership.
+            if (state.AppliedRecipeTraits.Count == 0 && traitCodes.Count > 0)
+            {
+                state.AppliedRecipeTraits = traitCodes.ToList();
+            }
+
             ClearRebornStats(player);
-            WriteRecipeTraits(player.Entity, traitCodes);
+            WriteRecipeTraits(player.Entity, state, traitCodes);
 
             if (Config.AllowStatBonuses)
             {
                 ApplyScaledStats(player, traitCodes);
             }
 
-            // Stat changes propagate through the entity stat collection. Health
-            // recalculation is intentionally left to the game behavior layer.
+            RefreshDependentPlayerStats(player);
         }
 
         // Collects distinct trait codes from learned extra classes.
@@ -1237,6 +1245,58 @@ namespace multiclassreborn
                     : (float)candidate.RawValue;
 
                 player.Entity.Stats.Set(candidate.StatCode, BuildCanonicalStatSourceCode(candidate.TraitCode), scaledValue, false);
+            }
+        }
+
+        // Recalculates stats that depend on trait values but update outside EntityStats.
+        private void RefreshDependentPlayerStats(IServerPlayer player)
+        {
+            RefreshWearableStats(player);
+            RefreshXSkillsArmorAbilities(player);
+
+            player.Entity.walkSpeed = player.Entity.Stats.GetBlended("walkspeed");
+        }
+
+        // Vanilla wearable stats cache armor penalties until the character inventory changes.
+        private void RefreshWearableStats(IServerPlayer player)
+        {
+            try
+            {
+                ModSystemWearableStats wearableStats = api.ModLoader.GetModSystem<ModSystemWearableStats>();
+                IInventory characterInventory = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+                if (wearableStats == null || characterInventory == null) return;
+
+                MethodInfo updateMethod = typeof(ModSystemWearableStats).GetMethod("updateWearableStats", BindingFlags.Instance | BindingFlags.NonPublic);
+                updateMethod?.Invoke(wearableStats, new object[] { characterInventory, player });
+            }
+            catch (Exception exception)
+            {
+                sapi.Logger.VerboseDebug("[Multiclass Reborn] Could not refresh wearable stats for {0}: {1}", player.PlayerName, exception.Message);
+            }
+        }
+
+        // XSkills armor abilities derive their bonuses from the wearable stat sources.
+        private void RefreshXSkillsArmorAbilities(IServerPlayer player)
+        {
+            if (api.ModLoader.IsModEnabled("xskills") != true) return;
+
+            try
+            {
+                ModSystem xskills = api.ModLoader.GetModSystem("XSkills.XSkills");
+                object skills = xskills?.GetType().GetProperty("Skills")?.GetValue(xskills);
+                if (skills == null) return;
+
+                MethodInfo tryGetValue = skills.GetType().GetMethod("TryGetValue");
+                object[] arguments = new object[] { "combat", null };
+                if (tryGetValue == null || (bool)tryGetValue.Invoke(skills, arguments) != true) return;
+
+                object combatSkill = arguments[1];
+                MethodInfo applyMethod = combatSkill?.GetType().GetMethod("ApplyArmorAbilities", BindingFlags.Instance | BindingFlags.Public);
+                applyMethod?.Invoke(combatSkill, new object[] { player });
+            }
+            catch (Exception exception)
+            {
+                sapi.Logger.VerboseDebug("[Multiclass Reborn] Could not refresh XSkills armor abilities for {0}: {1}", player.PlayerName, exception.Message);
             }
         }
 
@@ -1323,27 +1383,54 @@ namespace multiclassreborn
                 }
             }
 
-            RemoveRecipeTraits(player.Entity);
+            RemoveRecipeTraits(player.Entity, new RebornPlayerClassState(player.Entity));
         }
 
-        // Writes extra trait codes into watched attributes for recipe checks.
-        private void WriteRecipeTraits(EntityPlayer entity, HashSet<string> traitCodes)
+        // Merges our recipe traits without erasing model or race traits from other mods.
+        private void WriteRecipeTraits(EntityPlayer entity, RebornPlayerClassState state, HashSet<string> traitCodes)
         {
             if (!Config.AllowRecipeTraits || traitCodes.Count == 0)
             {
-                RemoveRecipeTraits(entity);
+                RemoveRecipeTraits(entity, state);
                 return;
             }
 
-            entity.WatchedAttributes.SetStringArray(ExtraTraitsAttribute, traitCodes.ToArray());
+            List<string> mergedTraits = BuildMergedExtraTraits(entity, state.AppliedRecipeTraits, traitCodes);
+            entity.WatchedAttributes.SetStringArray(ExtraTraitsAttribute, mergedTraits.ToArray());
             entity.WatchedAttributes.MarkPathDirty(ExtraTraitsAttribute);
+            state.AppliedRecipeTraits = traitCodes.ToList();
         }
 
-        // Removes extra recipe traits from watched attributes.
-        private void RemoveRecipeTraits(EntityPlayer entity)
+        // Removes only the recipe traits this mod previously contributed.
+        private void RemoveRecipeTraits(EntityPlayer entity, RebornPlayerClassState state)
         {
-            entity.WatchedAttributes.RemoveAttribute(ExtraTraitsAttribute);
+            List<string> mergedTraits = BuildMergedExtraTraits(entity, state.AppliedRecipeTraits, new HashSet<string>());
+            if (mergedTraits.Count == 0)
+            {
+                entity.WatchedAttributes.RemoveAttribute(ExtraTraitsAttribute);
+            }
+            else
+            {
+                entity.WatchedAttributes.SetStringArray(ExtraTraitsAttribute, mergedTraits.ToArray());
+            }
+
             entity.WatchedAttributes.MarkPathDirty(ExtraTraitsAttribute);
+            state.AppliedRecipeTraits = new List<string>();
+        }
+
+        // Preserves third-party extraTraits while replacing our owned contribution.
+        private List<string> BuildMergedExtraTraits(EntityPlayer entity, List<string> oldOwnedTraits, HashSet<string> newOwnedTraits)
+        {
+            string[] currentTraits = entity.WatchedAttributes.GetStringArray(ExtraTraitsAttribute, Array.Empty<string>());
+            HashSet<string> oldOwnedSet = new HashSet<string>(oldOwnedTraits ?? new List<string>());
+            List<string> mergedTraits = currentTraits
+                .Where(traitCode => !oldOwnedSet.Contains(traitCode))
+                .Concat(newOwnedTraits ?? new HashSet<string>())
+                .Where(traitCode => !string.IsNullOrWhiteSpace(traitCode))
+                .Distinct()
+                .ToList();
+
+            return mergedTraits;
         }
 
         // Cleans invalid or duplicate extra classes before recounting used slots.

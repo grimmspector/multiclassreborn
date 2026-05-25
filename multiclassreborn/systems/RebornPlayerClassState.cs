@@ -13,6 +13,7 @@ namespace multiclassreborn.systems
         private const string StateTreeCode = "multiclassreborn";
         private const string LegacyStateTreeCode = "multiclass";
         private const string ExtraClassesKey = "extraClasses";
+        private const string AppliedRecipeTraitsKey = "appliedRecipeTraits";
         private const string AvailableSlotsKey = "availableSlots";
         private const string UsedSlotsKey = "usedSlots";
         private const string RemovalCreditsKey = "removalSlots";
@@ -50,6 +51,22 @@ namespace multiclassreborn.systems
             {
                 Tree[ExtraClassesKey] = new StringArrayAttribute(value.ToArray());
                 MarkTreePath(ExtraClassesKey);
+            }
+        }
+
+        public List<string> AppliedRecipeTraits
+        {
+            get
+            {
+                IAttribute attribute = Tree[AppliedRecipeTraitsKey];
+                StringArrayAttribute strings = attribute as StringArrayAttribute;
+
+                return strings?.value?.ToList() ?? new List<string>();
+            }
+            set
+            {
+                Tree[AppliedRecipeTraitsKey] = new StringArrayAttribute(value.ToArray());
+                MarkTreePath(AppliedRecipeTraitsKey);
             }
         }
 
