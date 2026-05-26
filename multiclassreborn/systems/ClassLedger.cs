@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using multiclassreborn.items;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -24,6 +25,7 @@ namespace multiclassreborn.systems
         public Dictionary<string, Trait> TraitByCode { get; private set; } = new Dictionary<string, Trait>();
         public Dictionary<string, CharacterClass> ClassByCode { get; private set; } = new Dictionary<string, CharacterClass>();
         public HashSet<string> ClassBoundOnlyCodes { get; private set; } = new HashSet<string>();
+        public HashSet<string> RecipeRequiredTraitCodes { get; private set; } = new HashSet<string>();
         public Dictionary<string, string> RequiredGlyphstoneByClassCode { get; private set; } = new Dictionary<string, string>();
 
         // Load every class/trait asset before building maps, since other mods can add
@@ -78,6 +80,10 @@ namespace multiclassreborn.systems
                 .Where(classCode => ClassByCode.ContainsKey(classCode))
                 .ToHashSet();
 
+            RecipeRequiredTraitCodes = ReadRecipeRequiredTraitCodes(api)
+                .Where(traitCode => TraitByCode.ContainsKey(traitCode))
+                .ToHashSet();
+
             RequiredGlyphstoneByClassCode = enabledRecords
                 .Where(record => !string.IsNullOrWhiteSpace(record.RequiredGlyphstoneCode))
                 .ToDictionary(record => record.ClassDef.Code, record => record.RequiredGlyphstoneCode);
@@ -96,6 +102,20 @@ namespace multiclassreborn.systems
                 foreach (string classCode in ClassSlotGlyphItem.GetTargetClasses(stack))
                 {
                     yield return classCode;
+                }
+            }
+        }
+
+        // Finds trait gates used by recipes from vanilla and content packs.
+        private static IEnumerable<string> ReadRecipeRequiredTraitCodes(ICoreAPI api)
+        {
+            foreach (IAsset recipeAsset in api.Assets.GetMany("recipes", null, true))
+            {
+                string recipeText = recipeAsset.ToText();
+                foreach (Match match in Regex.Matches(recipeText ?? "", @"requiresTrait\s*:\s*""?([^"",\r\n}]+)""?"))
+                {
+                    string traitCode = match.Groups[1].Value.Trim().ToLowerInvariant();
+                    if (!string.IsNullOrWhiteSpace(traitCode)) yield return traitCode;
                 }
             }
         }

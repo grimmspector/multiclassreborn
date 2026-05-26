@@ -129,6 +129,8 @@
   "multiclassreborn:dialog-no-listed-traits": "<i>This class has no listed traits.</i>",
   "multiclassreborn:dialog-traits-heading": "<strong>Traits:</strong>",
   "multiclassreborn:traits-tab-base-class": "<strong>Base Class:</strong>",
+  "multiclassreborn:traits-tab-additional-traits": "<strong>Additional traits:</strong>",
   "multiclassreborn:traits-tab-extra-classes": "<strong>Extra classes:</strong>",
+  "multiclassreborn:traits-tab-model-traits": "<strong>Model Traits:</strong>",
   "multiclassreborn:traits-tab-no-listed-traits": "  <i>This class has no listed traits.</i>"
 }

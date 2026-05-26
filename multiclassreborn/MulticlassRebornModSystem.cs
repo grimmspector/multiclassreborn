@@ -69,8 +69,10 @@ namespace multiclassreborn
 
             // Sync after character setup so first-join class selection cannot overwrite it.
             sapi.Event.PlayerNowPlaying += PreparePlayerState;
+            sapi.Event.PlayerDisconnect += ClearSessionRecipeTraits;
             RegisterClassCommands();
             RegisterGlyphstoneRecipes();
+            LogTraitCompatibilityWarnings();
 
             sapi.Logger.Notification("[Multiclass Reborn] Loaded {0} class definitions. Stats={1}, Recipes={2}, GlyphstoneRecipes={3}, ClassBoundGlyphstones={4}, DisableGenericGlyphstones={5}, Scale={6:P0}, MaxSlots={7}, DropOverMax={8}, RequireGlyphs={9}, RetrainFree={10}, StartingAptitudeTokens={11}, BestPositiveOnly={12}, WorstNegativeOnly={13}",
                 Ledger.EnabledClasses.Count,
@@ -342,6 +344,23 @@ namespace multiclassreborn
             }
 
             sapi.RegisterCraftingRecipe(recipe);
+        }
+
+        // Warn about traits that would double-apply if written to extraTraits.
+        private void LogTraitCompatibilityWarnings()
+        {
+            List<string> riskyTraits = Ledger.EnabledClasses
+                .Where(classDef => classDef.Traits != null)
+                .SelectMany(classDef => classDef.Traits)
+                .Distinct()
+                .Where(traitCode => Ledger.RecipeRequiredTraitCodes.Contains(traitCode))
+                .Where(traitCode => Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait) && HasTraitStats(trait))
+                .OrderBy(traitCode => traitCode)
+                .ToList();
+
+            if (riskyTraits.Count == 0) return;
+
+            sapi.Logger.Warning("[Multiclass Reborn] Statful recipe traits will be applied as scaled stats only, not extraTraits, to avoid duplicate vanilla stat application after reload: {0}", string.Join(", ", riskyTraits));
         }
 
         // Allows any vanilla stone variant in the recipe corners.
@@ -876,6 +895,12 @@ namespace multiclassreborn
             Tell(player, Lang.Get("multiclassreborn:message-set-base-class", normalizedCode), EnumChatType.Notification);
         }
 
+        // Leave saves clean when the mod is removed after a normal shutdown.
+        private void ClearSessionRecipeTraits(IServerPlayer player)
+        {
+            RemoveRecipeTraits(player.Entity, new RebornPlayerClassState(player.Entity));
+        }
+
         // Retraining glyphstones are intentionally hotbar-only so use is a deliberate action.
         private bool TryConsumeRetrainingGlyphstone(IServerPlayer player)
         {
@@ -1194,6 +1219,7 @@ namespace multiclassreborn
         {
             RebornPlayerClassState state = new RebornPlayerClassState(player.Entity);
             HashSet<string> traitCodes = GatherExtraTraitCodes(state.ExtraClasses);
+            HashSet<string> recipeTraitCodes = GatherRecipeTraitCodes(traitCodes);
 
             // Claim current extra-class recipe traits when upgrading from versions
             // that wrote them without tracking ownership.
@@ -1203,7 +1229,7 @@ namespace multiclassreborn
             }
 
             ClearRebornStats(player);
-            WriteRecipeTraits(player.Entity, state, traitCodes);
+            WriteRecipeTraits(player.Entity, state, recipeTraitCodes);
 
             if (Config.AllowStatBonuses)
             {
@@ -1232,6 +1258,20 @@ namespace multiclassreborn
             return traitCodes;
         }
 
+        // Only statless traits can be safely mirrored through extraTraits.
+        private HashSet<string> GatherRecipeTraitCodes(HashSet<string> traitCodes)
+        {
+            return traitCodes
+                .Where(traitCode => Ledger.TraitByCode.TryGetValue(traitCode, out Trait trait) && !HasTraitStats(trait))
+                .ToHashSet();
+        }
+
+        // Non-empty attributes are handled through scaled EntityStats sources.
+        private static bool HasTraitStats(Trait trait)
+        {
+            return trait?.Attributes != null && trait.Attributes.Count > 0;
+        }
+
         // Applies scaled stat modifiers after config duplicate handling.
         private void ApplyScaledStats(IServerPlayer player, HashSet<string> traitCodes)
         {
@@ -1251,10 +1291,19 @@ namespace multiclassreborn
         // Recalculates stats that depend on trait values but update outside EntityStats.
         private void RefreshDependentPlayerStats(IServerPlayer player)
         {
+            RefreshHealthStats(player);
             RefreshWearableStats(player);
             RefreshXSkillsArmorAbilities(player);
 
             player.Entity.walkSpeed = player.Entity.Stats.GetBlended("walkspeed");
+        }
+
+        // Max-health changes need the health behavior to resync.
+        private void RefreshHealthStats(IServerPlayer player)
+        {
+            EntityBehavior health = player.Entity.GetBehavior("health");
+            MethodInfo markDirtyMethod = health?.GetType().GetMethod("MarkDirty", BindingFlags.Instance | BindingFlags.Public);
+            markDirtyMethod?.Invoke(health, null);
         }
 
         // Vanilla wearable stats cache armor penalties until the character inventory changes.
