@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
@@ -73,8 +76,26 @@ namespace multiclassreborn.systems
         private const float MaxExtraClassScale = 3f;
         private const string ConfigFileName = "multiclassreborn.json";
         private const string LegacyConfigFileName = "multiclass.json";
+        private static readonly string[] CurrentConfigKeys =
+        {
+            "AllowStats",
+            "AllowRecipes",
+            "EnableGlyphstoneRecipes",
+            nameof(EnableClassBoundGlyphstones),
+            nameof(DisableGenericGlyphstones),
+            "SecondaryScale",
+            nameof(OnlyApplyBestPositiveTraitBonus),
+            nameof(OnlyApplyWorstNegativeTraitPenalty),
+            "AllowForgettingBaseClass",
+            "AllowCommonersChooseBaseClass",
+            nameof(MaxExtraClasses),
+            nameof(DropExtraClassesOverMax),
+            "RequireTokens",
+            nameof(RetrainFree),
+            nameof(StartingAptitudeTokens)
+        };
 
-        // Preserve user comments by only rewriting plain JSON or newly created configs.
+        // Keeps older configs usable while upgrading them to the current template.
         public static RebornClassConfig Load(ICoreServerAPI sapi)
         {
             RebornClassConfig config = null;
@@ -95,7 +116,13 @@ namespace multiclassreborn.systems
                 if (config != null)
                 {
                     bool changed = config.ClampUnsafeValues(sapi);
-                    if ((changed && LooksLikeGeneratedConfig(configText)) || !HasJsonComments(configText))
+                    List<string> missingKeys = FindMissingConfigKeys(configText);
+                    if (missingKeys.Count > 0)
+                    {
+                        sapi.Logger.Warning("[Multiclass Reborn] Config is missing keys added by newer versions ({0}); using defaults and updating the config file.", string.Join(", ", missingKeys));
+                    }
+
+                    if (changed || missingKeys.Count > 0 || !HasJsonComments(configText))
                     {
                         WriteCommentedConfig(configPath, config);
                     }
@@ -212,14 +239,20 @@ namespace multiclassreborn.systems
             };
         }
 
-        // Detects configs written by this mod so sanitized values can be persisted.
-        private static bool LooksLikeGeneratedConfig(string configText)
+        // Finds keys absent from older configs so the saved template can be upgraded.
+        private static List<string> FindMissingConfigKeys(string configText)
         {
-            return configText?.Contains("// Allows extra-class stat bonuses to be applied.", StringComparison.Ordinal) == true
-                && configText.Contains("// Aptitude Glyphstones granted on first join", StringComparison.Ordinal);
+            JObject json = JObject.Parse(configText);
+            HashSet<string> presentKeys = json.Properties()
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return CurrentConfigKeys
+                .Where(key => !presentKeys.Contains(key))
+                .ToList();
         }
 
-        // Detects hand-written comments so the config file is left alone.
+        // Detects comments so plain JSON can be upgraded to the readable template.
         private static bool HasJsonComments(string configText)
         {
             return configText?.Contains("//", StringComparison.Ordinal) == true
