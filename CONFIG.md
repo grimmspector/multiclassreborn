@@ -32,6 +32,8 @@ This setting only prunes when the reviewed max changes. It does not remove class
 
 `RequireTokens` controls whether players need Aptitude Glyphstones to add extra-class slots and Retraining Glyphstones to forget classes. Default: `false`.
 
+`RequireTokens` must be `true` when `EnableClassBoundGlyphstones` is `true`. If class-bound glyphstones are enabled while `RequireTokens` is `false`, Multiclass Reborn forces `RequireTokens` to `true`, logs that repair, and updates the config file on disk.
+
 When `RequireTokens` is `false`, players use the configured `MaxExtraClasses` as free class capacity. `RetrainFree` has no effect because forgetting is already free, and `StartingAptitudeTokens` has no effect because starting slots are not item-gated.
 
 `RetrainFree` makes class forgetting free while glyphstones are still required for adding slots. Default: `false`.
@@ -57,6 +59,8 @@ This setting does not disable class-bound glyphstones or Retraining Glyphstones.
 ## Class-Bound Glyphstones
 
 `EnableClassBoundGlyphstones` enables JSON-defined class-bound Aptitude Glyphstones. Default: `false`.
+
+Class-bound glyphstones require `RequireTokens` to be `true`. Multiclass Reborn repairs that dependency automatically when loading the config.
 
 When disabled, class-bound glyphstone items can still exist, but confirming them will not learn or replace a class.
 

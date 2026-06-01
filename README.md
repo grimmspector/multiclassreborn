@@ -29,7 +29,7 @@ The default config is written to `ModConfig/multiclassreborn.json`. More details
 - `AllowStats`: Enables stat changes from extra classes. Default: `true`.
 - `AllowRecipes`: Allows extra-class recipe traits to count for recipe gating. Default: `true`.
 - `EnableGlyphstoneRecipes`: Enables craftable Aptitude and Retraining Glyphstones. Default: `false`.
-- `EnableClassBoundGlyphstones`: Enables JSON-defined class-bound Aptitude Glyphstones. Default: `false`.
+- `EnableClassBoundGlyphstones`: Enables JSON-defined class-bound Aptitude Glyphstones. Requires `RequireTokens`. Default: `false`.
 - `DisableGenericGlyphstones`: Disables generic Aptitude Glyphstones while leaving class-bound glyphstones available. Default: `false`.
 - `SecondaryScale`: Multiplies stat changes from extra classes. Valid range: `0` to `3`. Default: `0.8`.
 - `OnlyApplyBestPositiveTraitBonus`: Keeps only the strongest positive bonus for each affected stat. Default: `false`.
@@ -38,9 +38,14 @@ The default config is written to `ModConfig/multiclassreborn.json`. More details
 - `AllowCommonersChooseBaseClass`: Lets Commoners choose a new main class without a glyphstone. Default: `false`.
 - `MaxExtraClasses`: Sets the maximum number of extra class slots. Valid range: `0` to `32`. Default: `3`.
 - `DropExtraClassesOverMax`: Removes learned extra classes above `MaxExtraClasses` after that value changes. Default: `false`.
-- `RequireTokens`: Requires glyphstones for adding slots and forgetting classes. Default: `false`.
+- `RequireTokens`: Requires glyphstones for adding slots and forgetting classes. Forced to `true` when class-bound glyphstones are enabled. Default: `false`.
 - `RetrainFree`: Makes class forgetting free while glyphstones are still required for adding slots. Default: `false`.
 - `StartingAptitudeTokens`: Grants Aptitude Glyphstones to new players when glyphstones are required. Valid range: `0` to `64`. Default: `0`.
+
+## Admin Config Commands
+
+- `/multiclass configcheck`: Reports config values that were unreadable, missing, clamped, or forced during the last config load.
+- `/multiclass regenconfig`: Rewrites `ModConfig/multiclassreborn.json` as a clean commented file, preserving readable settings and defaulting unreadable or missing settings.
 
 ## Incomplete / Follow-up Goals
 

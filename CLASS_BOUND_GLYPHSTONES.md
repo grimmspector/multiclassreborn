@@ -10,6 +10,10 @@ Class-bound glyphstones are disabled by default. Server owners must enable them 
 "EnableClassBoundGlyphstones": true
 ```
 
+Class-bound glyphstones require `RequireTokens` to be `true`. If `EnableClassBoundGlyphstones` is true while `RequireTokens` is false, Multiclass Reborn forces `RequireTokens` to true, logs the repair, and updates the config file.
+
+For a short testing config that can be linked from GitHub without shipping in releases, see `CLASS_BOUND_GLYPHSTONE_CONFIG_EXAMPLE.md`.
+
 When disabled, the item can still exist, but confirming it will not learn or replace a class.
 
 Generic Aptitude Glyphstones can also be disabled:

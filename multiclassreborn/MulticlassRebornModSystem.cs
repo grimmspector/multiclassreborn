@@ -220,6 +220,16 @@ namespace multiclassreborn
                     .WithDescription(Lang.Get("multiclassreborn:command-summary-description"))
                     .HandleWith(args => RunPlayerCommand(args, ShowClassSummary))
                 .EndSubCommand()
+                .BeginSubCommand("configcheck")
+                    .WithDescription(Lang.Get("multiclassreborn:command-configcheck-description"))
+                    .RequiresPrivilege(Privilege.controlserver)
+                    .HandleWith(args => RunPlayerCommand(args, ShowConfigCheck))
+                .EndSubCommand()
+                .BeginSubCommand("regenconfig")
+                    .WithDescription(Lang.Get("multiclassreborn:command-regenconfig-description"))
+                    .RequiresPrivilege(Privilege.controlserver)
+                    .HandleWith(args => RunPlayerCommand(args, RegenerateConfig))
+                .EndSubCommand()
                 .BeginSubCommand("clear")
                     .WithDescription(Lang.Get("multiclassreborn:command-clear-description"))
                     .RequiresPrivilege(Privilege.controlserver)
@@ -410,6 +420,68 @@ namespace multiclassreborn
 
             action(player);
             return TextCommandResult.Success("", null);
+        }
+
+        // Reports config load repairs from startup or the latest regeneration.
+        private void ShowConfigCheck(IServerPlayer player)
+        {
+            Tell(player, Lang.Get("multiclassreborn:message-configcheck-current",
+                Config.EnableClassBoundGlyphstones,
+                Config.RequireGlyphs,
+                Config.RetrainFreeApplies,
+                Config.MaxExtraClasses), EnumChatType.Notification);
+            TellConfigLoadReport(player, RebornClassConfig.LastLoadReport, false);
+        }
+
+        // Rewrites the config file with readable defaults and every value still readable.
+        private void RegenerateConfig(IServerPlayer player)
+        {
+            Config = RebornClassConfig.Regenerate(sapi);
+            string resultCode = RebornClassConfig.LastLoadReport.FileChanged
+                ? "multiclassreborn:message-regenconfig-complete"
+                : "multiclassreborn:message-regenconfig-unchanged";
+
+            Tell(player, Lang.Get(resultCode), EnumChatType.Notification);
+            TellConfigLoadReport(player, RebornClassConfig.LastLoadReport, true);
+            Tell(player, Lang.Get("multiclassreborn:message-regenconfig-restart"), EnumChatType.Notification);
+        }
+
+        // Sends a compact load report without hiding repaired values.
+        private void TellConfigLoadReport(IServerPlayer player, RebornConfigLoadReport report, bool includeMaintained)
+        {
+            if (report == null || !report.HasProblems)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-configcheck-ok"), EnumChatType.Notification);
+            }
+
+            if (report?.WholeFileError != null)
+            {
+                Tell(player, Lang.Get("multiclassreborn:message-configcheck-malformed", report.WholeFileError), EnumChatType.Notification);
+            }
+
+            TellConfigKeyList(player, "multiclassreborn:message-configcheck-defaulted", report?.DefaultedKeys);
+            TellConfigKeyList(player, "multiclassreborn:message-configcheck-missing", report?.MissingKeys);
+            TellConfigKeyList(player, "multiclassreborn:message-configcheck-clamped", report?.ClampedKeys);
+            TellConfigKeyList(player, "multiclassreborn:message-configcheck-forced", report?.ForcedKeys);
+
+            if (includeMaintained)
+            {
+                TellConfigKeyList(player, "multiclassreborn:message-configcheck-maintained", report?.MaintainedKeys);
+            }
+        }
+
+        // Skips empty categories so config reports stay readable in chat.
+        private void TellConfigKeyList(IServerPlayer player, string langCode, IEnumerable<string> keys)
+        {
+            List<string> keyList = keys?
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Distinct()
+                .OrderBy(key => key)
+                .ToList();
+
+            if (keyList == null || keyList.Count == 0) return;
+
+            Tell(player, Lang.Get(langCode, string.Join(", ", keyList)), EnumChatType.Notification);
         }
 
         // Opens the client dialog in retraining mode.
