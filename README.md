@@ -47,6 +47,31 @@ The default config is written to `ModConfig/multiclassreborn.json`. More details
 - `/multiclass configcheck`: Reports config values that were unreadable, missing, clamped, or forced during the last config load.
 - `/multiclass regenconfig`: Rewrites `ModConfig/multiclassreborn.json` as a clean commented file, preserving readable settings and defaulting unreadable or missing settings.
 
+## Mod Compatibility API
+
+Other code mods can use the public `MulticlassCompatibility` service to check both a player's main class and their learned extra classes. Reference `MulticlassReborn.dll` when compiling your mod, and declare `multiclassreborn` as a dependency when calling the service directly.
+
+```csharp
+using multiclassreborn;
+using Vintagestory.API.Common;
+
+EntityPlayer player = serverPlayer.Entity;
+
+if (MulticlassCompatibility.HasClass(player, "innkeeper"))
+{
+    // The player has Innkeeper as either their main or an extra class.
+}
+```
+
+Available methods:
+
+- `HasClass(player, classCode)`: Checks the main and extra classes.
+- `IsExtraClass(player, classCode)`: Checks only learned extra classes.
+- `GetAllClassCodes(player)`: Returns the main class followed by distinct extra classes.
+- `GetExtraClassCodes(player)`: Returns only distinct learned extra classes.
+
+Class-code comparisons are trimmed and case-insensitive. Collection methods return snapshots, so changing the returned collection does not modify player data.
+
 ## Incomplete / Follow-up Goals
 
 - Currently none
