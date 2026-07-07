@@ -1352,7 +1352,7 @@ namespace multiclassreborn
 
             foreach (TraitStatCandidate candidate in appliedCandidates)
             {
-                float scaledValue = ShouldScaleStat(candidate.StatCode)
+                float scaledValue = ExtraClassStatScaling.ShouldScaleStat(candidate.StatCode)
                     ? (float)candidate.RawValue * Config.ExtraClassScale
                     : (float)candidate.RawValue;
 
@@ -1419,19 +1419,6 @@ namespace multiclassreborn
             {
                 sapi.Logger.VerboseDebug("[Multiclass Reborn] Could not refresh XSkills armor abilities for {0}: {1}", player.PlayerName, exception.Message);
             }
-        }
-
-        // Some trait stats are discrete unlocks, thresholds, or tier values.
-        private static bool ShouldScaleStat(string statCode)
-        {
-            if (string.IsNullOrWhiteSpace(statCode)) return true;
-            if (statCode.Equals("temporalGearTLRepairCost", StringComparison.OrdinalIgnoreCase)) return false;
-            if (statCode.Equals("dodgeGuaranteedCooldown", StringComparison.OrdinalIgnoreCase)) return false;
-            if (statCode.Equals("fallDamageThreshold", StringComparison.OrdinalIgnoreCase)) return false;
-            if (statCode.StartsWith("can", StringComparison.OrdinalIgnoreCase)) return false;
-            if (statCode.IndexOf("DamageTierBonus", StringComparison.OrdinalIgnoreCase) >= 0) return false;
-
-            return true;
         }
 
         // Flattens selected traits into stat candidates for filtering.

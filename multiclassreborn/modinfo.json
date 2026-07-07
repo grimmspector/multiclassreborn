@@ -7,7 +7,7 @@
     "GrimmSpector, Ultrcombraun"
   ],
   "description": "A clean-room replacement for multiclass character builds.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "dependencies": {
     "game": "1.22.0"
   }
